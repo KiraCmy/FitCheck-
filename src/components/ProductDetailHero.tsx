@@ -100,7 +100,7 @@ export function ProductDetailHero({
               onClick={onLaunchContextFit}
               className="w-full h-11 px-4 bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111] text-xs font-semibold tracking-[0.01em] inline-flex items-center justify-between hover:opacity-85 transition-opacity whitespace-nowrap"
             >
-              <span>Find My Fit — Why Not This?</span>
+              <span>Is It Fit?</span>
               <ArrowUpRight className="w-4 h-4 shrink-0" strokeWidth={1.75} />
             </button>
 

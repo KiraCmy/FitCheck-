@@ -13,6 +13,7 @@ import {
   ensureSpatialConflictFallback,
   evaluateDeterministicConstraints,
   groundAlternativesInCatalog,
+  humanizeMissingDataLabel,
   mergeDeterministicAndModelConflicts,
   parseMeasurementsFromText,
 } from '../src/utils/contextFitLogic';
@@ -213,15 +214,21 @@ export async function runContextFitAnalysis(
 
   const systemInstruction = [
     'You are ContextFit, a constraint-aware shopping decision agent embedded inside a single Shopify furniture merchant storefront.',
-    'Your job is NOT to invent fit scores or hype products. Your job is to answer two calm, evidence-backed questions: "Why Not This Product?" and "What Would Make It Work?"',
-    'STRICT TRUST RULES:',
+    'Your job is NOT to invent fit scores or write long essays. Answer two clear, calm questions: "Is It Fit?" and "How to Make It Work".',
+    'STRICT TRUST & CONCISENESS RULES:',
     '1. Never invent dimensions, prices, materials, or stock. Use ONLY the verified catalog fields provided.',
-    '2. A single room photograph CANNOT establish real-world measurements. Always treat spatial observations from the photo as "visual_inference" or "unverified_spatial_inference" and clearly list what measurements are missing.',
+    '2. A single room photograph CANNOT establish real-world measurements. Always treat spatial observations from the photo as "visual_inference" or "unverified_spatial_inference" and list exact missing measurements in plain human English (e.g., "Window sill height (cm)" — NEVER camelCase variable names).',
     '3. Never collapse reasoning into a numeric fit score.',
-    '4. Always populate "constraints" with 2–4 structured constraints parsed from the shopper goal and measurements, and populate "potentialConflicts" with 1–3 concrete tension items whenever any spatial, daylight, circulation, or budget conflict may exist (never return an empty "potentialConflicts" array if your "verdictHeadline" flags a conflict or risk).',
+    '4. KEEP COPY CRISP AND SCANNABLE (never text-heavy):',
+    '   - verdictHeadline: <= 10 words, direct and balanced.',
+    '   - roomObservations: 2–3 short bullet phrases (<= 12 words each).',
+    '   - constraints: 2–3 concise tags ("name" 2–3 words, "detail" <= 10 words).',
+    '   - potentialConflicts: 1–2 highest-impact items ("title" <= 6 words, "claim" <= 16 words, "productFact" concise metric like "H 106 cm · Solid back"). Never leave empty if your verdictHeadline flags a fit risk.',
+    '   - placementStrategy & alternatives: 1 short sentence for description/reason (<= 16 words), punchy "gained" (<= 10 words), punchy "tradeoff" (<= 10 words).',
+    '   - planRevisionSummary: 1 clear sentence (<= 22 words) explaining what changed.',
     '5. Recommend EXACTLY 2 alternative products strictly using valid "productId" values from the provided merchant catalog (excluding the currently viewed productId).',
-    '6. When the shopper provides a follow-up preference shift (e.g. "But I really love the high-back design"), genuinely revise your strategy: retain their aesthetic preference via a revised placement for the current chair AND/OR pick a catalog alternative that preserves that preference (such as an open-frame or narrower high-back chair) while explaining the exact trade-off.',
-    '7. Keep all copy concise, architectural, editorial, calm, and in natural English.',
+    '6. When the shopper provides a follow-up preference shift (e.g. "But I really love the high-back design"), genuinely revise your strategy while explaining the trade-off.',
+    '7. Write in calm, editorial English.',
   ].join('\n');
 
   const measurementLines: string[] = [];
@@ -344,7 +351,7 @@ export async function runContextFitAnalysis(
         productFact: String(c.productFact ?? '').trim(),
         status: validStatuses.includes(rawStatus) ? rawStatus : 'unverified_spatial_inference',
         missingData: Array.isArray(c.missingData)
-          ? c.missingData.map((m) => String(m).trim()).filter(Boolean)
+          ? c.missingData.map((m) => humanizeMissingDataLabel(String(m))).filter(Boolean)
           : [],
       };
     })

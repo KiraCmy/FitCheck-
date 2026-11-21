@@ -378,6 +378,25 @@ export function ensureSpatialConflictFallback(
   return fallback;
 }
 
+export function humanizeMissingDataLabel(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  // If already contains spaces and looks human-written, preserve capitalization cleanly
+  if (/\s/.test(trimmed) && !/[a-z][A-Z]/.test(trimmed)) {
+    return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  }
+  const hasCmSuffix = /(?:Cm|_cm)$/i.test(trimmed);
+  const withoutSuffix = hasCmSuffix ? trimmed.replace(/(?:Cm|_cm)$/i, '') : trimmed;
+  const spaced = withoutSuffix
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .trim()
+    .toLowerCase();
+  if (!spaced) return trimmed;
+  const formatted = spaced.charAt(0).toUpperCase() + spaced.slice(1);
+  return hasCmSuffix ? `${formatted} (cm)` : formatted;
+}
+
 export function formatEvidenceLabel(status: ConflictItem['status']): string {
   switch (status) {
     case 'confirmed_fact':
@@ -385,13 +404,13 @@ export function formatEvidenceLabel(status: ConflictItem['status']): string {
     case 'confirmed_conflict':
       return 'Confirmed conflict';
     case 'visual_inference':
-      return 'Visual inference';
+      return 'Visual estimate';
     case 'unverified_spatial_inference':
-      return 'Unverified spatial inference';
+      return 'Visual estimate';
     case 'needs_measurement':
       return 'Needs measurement';
     default:
-      return 'Inference';
+      return 'Estimate';
   }
 }
 

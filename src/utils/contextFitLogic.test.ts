@@ -6,6 +6,7 @@ import {
   ensureSpatialConflictFallback,
   evaluateDeterministicConstraints,
   groundAlternativesInCatalog,
+  humanizeMissingDataLabel,
   mergeDeterministicAndModelConflicts,
   parseMeasurementsFromText,
 } from './contextFitLogic';
@@ -154,4 +155,10 @@ test('ensureParsedConstraints extracts structured constraints when model omits t
   assert.ok(result.length >= 2);
   assert.ok(result.some((c) => c.type === 'spatial' && c.priority === 'high'));
   assert.ok(result.some((c) => c.type === 'hard' && c.detail.includes('$750')));
+});
+
+test('humanizeMissingDataLabel converts camelCase keys into readable English labels', () => {
+  assert.equal(humanizeMissingDataLabel('windowSillHeightCm'), 'Window sill height (cm)');
+  assert.equal(humanizeMissingDataLabel('credenzaToCornerDistanceCm'), 'Credenza to corner distance (cm)');
+  assert.equal(humanizeMissingDataLabel('Window sill height (cm)'), 'Window sill height (cm)');
 });

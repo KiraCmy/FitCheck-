@@ -23,6 +23,7 @@ import { INITIAL_GOAL_PROMPTS, REVISION_FOLLOWUP_CHIPS } from '../data/merchantC
 import {
   evaluateDeterministicConstraints,
   formatEvidenceLabel,
+  humanizeMissingDataLabel,
 } from '../utils/contextFitLogic';
 import { downloadImageAsPng } from '../utils/canvasTools';
 import { SafeImage } from './SafeImage';
@@ -461,11 +462,11 @@ export function ContextFitWorkspace({
               {isAnalyzing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Evaluating Fit…</span>
+                  <span>Checking Fit…</span>
                 </>
               ) : (
                 <>
-                  <span>Analyze Fit — Why Not This?</span>
+                  <span>Is It Fit?</span>
                   <ArrowUpRight className="w-4 h-4" />
                 </>
               )}
@@ -474,17 +475,17 @@ export function ContextFitWorkspace({
         </div>
       </div>
 
-      {/* PANEL B, C, D: EVIDENCE-BASED DECISION & REVISION LOOP */}
+      {/* PANEL B, C, D: SCANNABLE FIT ASSESSMENT & REVISION LOOP */}
       {activeAnalysis && (
         <div className="mt-10 space-y-10" data-testid="contextfit-results">
-          {/* Session Turn Switcher & Revision Callout */}
+          {/* Verdict Header & Priority Strip */}
           <div className="border-t-2 border-[#0E0E0E] dark:border-[#F2F2F2] pt-6">
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-              <div>
+            <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+              <div className="max-w-3xl">
                 <p className="text-xs font-mono text-[#737373] dark:text-[#9CA3AF]">
-                  Why Not This Product? · Turn {activeAnalysis.turnNumber} of {turns.length}
+                  Is It Fit? · Turn {activeAnalysis.turnNumber} of {turns.length}
                 </p>
-                <h3 className="text-2xl sm:text-3xl font-bold tracking-[-0.025em] text-[#0E0E0E] dark:text-[#F2F2F2] mt-1 [text-wrap:balance]">
+                <h3 className="text-2xl sm:text-4xl font-bold tracking-[-0.03em] leading-[1.1] text-[#0E0E0E] dark:text-[#F2F2F2] mt-1.5 [text-wrap:balance]">
                   {activeAnalysis.verdictHeadline}
                 </h3>
               </div>
@@ -493,7 +494,7 @@ export function ContextFitWorkspace({
                 <div
                   role="tablist"
                   aria-label="Decision revision history"
-                  className="inline-flex border border-[#0E0E0E] dark:border-[#F2F2F2]"
+                  className="inline-flex border border-[#0E0E0E] dark:border-[#F2F2F2] shrink-0"
                 >
                   {turns.map((turn, idx) => (
                     <button
@@ -516,140 +517,183 @@ export function ContextFitWorkspace({
               )}
             </div>
 
-            {/* Revision Adaptation Summary (Hero Turn 2+ Callout) */}
+            {/* Revision Adaptation Summary (Turn 2+) */}
             {activeAnalysis.planRevisionSummary && (
               <div
                 data-testid="revision-summary-banner"
-                className="mb-6 p-4 border border-[#0E0E0E] dark:border-[#F2F2F2] bg-[#FAFAFA] dark:bg-[#181818]"
+                className="mb-5 px-4 py-3.5 border border-[#DFDFDF] dark:border-[#2C2C2C] border-l-4 border-l-[#B91C1C] dark:border-l-[#F87171] bg-[#FAFAFA] dark:bg-[#181818]"
               >
-                <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-[#B91C1C] dark:text-[#F87171] mb-1">
-                  <span>Plan Revised</span>
+                <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-[#B91C1C] dark:text-[#F87171] mb-1">
+                  <span className="font-semibold">Plan Revised</span>
                   <span aria-hidden="true">·</span>
                   <span className="text-[#525252] dark:text-[#A3A3A3]">
-                    Response to &ldquo;{activeAnalysis.userPrompt}&rdquo;
+                    &ldquo;{activeAnalysis.userPrompt}&rdquo;
                   </span>
                 </div>
-                <p className="text-sm font-medium text-[#0E0E0E] dark:text-[#F2F2F2] leading-relaxed">
+                <p className="text-[13px] font-medium text-[#0E0E0E] dark:text-[#F2F2F2] leading-relaxed">
                   {activeAnalysis.planRevisionSummary}
                 </p>
               </div>
             )}
 
-            {/* 3-Column Evidence Breakdown (Observation / Product Facts / Potential Conflicts & Unknowns) */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 border border-[#DFDFDF] dark:border-[#262626]">
-              {/* Col 1: Room Observations */}
-              <div className="p-5 lg:border-r border-b lg:border-b-0 border-[#DFDFDF] dark:border-[#262626] space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold tracking-[0.02em] text-[#0E0E0E] dark:text-[#F2F2F2]">
-                    Room Observations
-                  </h4>
-                  <span className="text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
-                    Visual inference
+            {/* At-a-Glance Confirmed Specs & Priority Tags */}
+            <div className="border-t border-x border-[#DFDFDF] dark:border-[#262626] px-5 py-3 bg-[#FAFAFA] dark:bg-[#161616] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-mono tabular-nums text-[#0E0E0E] dark:text-[#F2F2F2]">
+                <span className="text-[11px] text-[#737373] dark:text-[#8E8E93]">Verified Spec:</span>
+                <span className="font-semibold">
+                  H {currentChair.dimensions.heightCm} × W {currentChair.dimensions.widthCm} × D{' '}
+                  {currentChair.dimensions.depthCm} cm
+                </span>
+                <span className="text-[#BDBDBD] dark:text-[#444444]" aria-hidden="true">
+                  |
+                </span>
+                <span>{currentChair.visualWeight}</span>
+                <span className="text-[#BDBDBD] dark:text-[#444444]" aria-hidden="true">
+                  |
+                </span>
+                <span>{currentChair.price}</span>
+              </div>
+
+              {activeAnalysis.constraints.length > 0 && (
+                <div
+                  className="flex flex-wrap items-center gap-1.5"
+                  aria-label="Active priorities"
+                >
+                  <span className="text-[11px] font-mono text-[#737373] dark:text-[#8E8E93] mr-1">
+                    Priorities:
                   </span>
-                </div>
-                <ul className="space-y-2.5 text-xs text-[#333333] dark:text-[#CCCCCC]">
-                  {activeAnalysis.roomObservations.map((obs, idx) => (
-                    <li
+                  {activeAnalysis.constraints.slice(0, 3).map((c, idx) => (
+                    <span
                       key={idx}
-                      className="pb-2.5 last:pb-0 border-b last:border-b-0 border-[#EFEFEF] dark:border-[#222222] leading-relaxed"
+                      title={c.detail}
+                      className={`px-2 py-0.5 text-[11px] font-medium border ${
+                        c.type === 'hard'
+                          ? 'border-[#0E0E0E] dark:border-[#F2F2F2] bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111]'
+                          : 'border-[#D4D4D4] dark:border-[#333333] bg-white dark:bg-[#111111] text-[#262626] dark:text-[#E5E5E5]'
+                      }`}
                     >
-                      <div>{obs.claim}</div>
-                      <div className="text-[10px] font-mono text-[#737373] dark:text-[#8E8E93] mt-1">
-                        Status: {obs.status === 'confirmed_fact' ? 'Confirmed fact' : 'Visual inference (single photo)'}
-                      </div>
-                    </li>
+                      {c.name}
+                    </span>
                   ))}
-                </ul>
-              </div>
-
-              {/* Col 2: Verified Product Facts & Parsed Constraints */}
-              <div className="p-5 lg:border-r border-b lg:border-b-0 border-[#DFDFDF] dark:border-[#262626] space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold tracking-[0.02em] text-[#0E0E0E] dark:text-[#F2F2F2]">
-                    Verified Product Facts
-                  </h4>
-                  <span className="text-[11px] font-mono text-[#0E0E0E] dark:text-[#F2F2F2]">
-                    Confirmed fact
-                  </span>
                 </div>
-                <ul className="space-y-2 text-xs text-[#333333] dark:text-[#CCCCCC]">
-                  {deterministic.confirmedFacts.map((fact, idx) => (
-                    <li key={idx} className="leading-relaxed">
-                      {fact}
-                    </li>
-                  ))}
-                </ul>
+              )}
+            </div>
 
-                {activeAnalysis.constraints.length > 0 && (
-                  <div className="pt-3 border-t border-[#EFEFEF] dark:border-[#222222] space-y-2">
-                    <div className="text-[11px] font-bold text-[#0E0E0E] dark:text-[#F2F2F2]">
-                      Active Constraints
-                    </div>
-                    <ul className="space-y-1.5 text-xs text-[#525252] dark:text-[#A3A3A3]">
-                      {activeAnalysis.constraints.map((c, idx) => (
-                        <li key={idx} className="leading-snug">
-                          <span className="font-mono text-[11px] text-[#0E0E0E] dark:text-[#F2F2F2]">
-                            [{c.type} · {c.priority}]
-                          </span>{' '}
-                          {c.detail}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-
-              {/* Col 3: Potential Conflicts & Missing Data */}
-              <div className="p-5 space-y-3 bg-[#FAFAFA] dark:bg-[#161616]">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold tracking-[0.02em] text-[#0E0E0E] dark:text-[#F2F2F2]">
-                    Potential Conflicts &amp; Unknowns
+            {/* 2-Column Prioritized Evidence Grid: 7 Cols Primary Fit Checks | 5 Cols Room Context */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 border border-[#DFDFDF] dark:border-[#262626]">
+              {/* Primary Focus (7 cols): Key Fit Checks & Unknowns */}
+              <div className="lg:col-span-7 p-6 lg:border-r border-b lg:border-b-0 border-[#DFDFDF] dark:border-[#262626] bg-white dark:bg-[#111111]">
+                <div className="flex items-center justify-between pb-4 border-b border-[#EFEFEF] dark:border-[#222222]">
+                  <h4 className="text-xs font-bold uppercase tracking-[0.06em] text-[#0E0E0E] dark:text-[#F2F2F2]">
+                    Key Fit Checks
                   </h4>
-                  <span className="text-[11px] font-mono text-[#B91C1C] dark:text-[#F87171]">
-                    {activeAnalysis.potentialConflicts.length} flagged
+                  <span className="text-xs font-mono text-[#B91C1C] dark:text-[#F87171]">
+                    {activeAnalysis.potentialConflicts.length === 0
+                      ? 'Clear'
+                      : `${activeAnalysis.potentialConflicts.length} to watch`}
                   </span>
                 </div>
 
                 {activeAnalysis.potentialConflicts.length === 0 ? (
-                  <p className="text-xs text-[#525252] dark:text-[#A3A3A3] leading-relaxed">
-                    No hard or spatial conflicts detected against your stated goal and measurements.
+                  <p className="pt-4 text-sm text-[#333333] dark:text-[#CCCCCC] leading-relaxed">
+                    No conflicts found against your goal and current measurements.
                   </p>
                 ) : (
-                  <div className="space-y-3">
-                    {activeAnalysis.potentialConflicts.map((conflict, idx) => (
-                      <div
-                        key={idx}
-                        className="pb-3 last:pb-0 border-b last:border-b-0 border-[#E5E5E5] dark:border-[#262626] space-y-1"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
-                            {conflict.title}
-                          </span>
+                  <div className="divide-y divide-[#EFEFEF] dark:divide-[#222222]">
+                    {activeAnalysis.potentialConflicts.slice(0, 3).map((conflict, idx) => (
+                      <div key={idx} className="py-4 first:pt-4 last:pb-0 space-y-2">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <div className="flex items-baseline gap-2.5">
+                            <span className="text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
+                              0{idx + 1}
+                            </span>
+                            <span className="text-sm font-bold text-[#0E0E0E] dark:text-[#F2F2F2]">
+                              {conflict.title}
+                            </span>
+                          </div>
                           <span
-                            className={`text-[10px] font-mono ${
+                            className={`text-[11px] font-mono px-2 py-0.5 border ${
                               conflict.status === 'confirmed_conflict'
-                                ? 'text-[#B91C1C] dark:text-[#F87171] font-semibold'
-                                : 'text-[#737373] dark:text-[#9CA3AF]'
+                                ? 'border-[#B91C1C] text-[#B91C1C] dark:border-[#F87171] dark:text-[#F87171] font-semibold'
+                                : 'border-[#DFDFDF] dark:border-[#333333] text-[#666666] dark:text-[#9CA3AF]'
                             }`}
                           >
                             {formatEvidenceLabel(conflict.status)}
                           </span>
                         </div>
-                        <p className="text-xs text-[#333333] dark:text-[#CCCCCC] leading-relaxed">
+
+                        <p className="text-[13px] text-[#333333] dark:text-[#D4D4D4] leading-relaxed pl-6">
                           {conflict.claim}
                         </p>
-                        {conflict.productFact && (
-                          <p className="text-[11px] text-[#666666] dark:text-[#9CA3AF]">
-                            Catalog fact: {conflict.productFact}
-                          </p>
-                        )}
-                        {conflict.missingData.length > 0 && (
-                          <p className="text-[11px] font-mono text-[#666666] dark:text-[#9CA3AF]">
-                            Unknowns: {conflict.missingData.join(' · ')}
-                          </p>
-                        )}
+
+                        <div className="pl-6 flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-0.5 text-[11px]">
+                          {conflict.productFact && (
+                            <span className="font-mono text-[#525252] dark:text-[#A3A3A3]">
+                              {conflict.productFact}
+                            </span>
+                          )}
+                          {conflict.missingData.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="font-mono text-[#737373] dark:text-[#8E8E93]">
+                                Measure:
+                              </span>
+                              {conflict.missingData.map((item, mIdx) => (
+                                <span
+                                  key={mIdx}
+                                  className="px-1.5 py-0.5 bg-[#F5F5F4] dark:bg-[#1E1E1E] text-[#404040] dark:text-[#CCCCCC] font-mono"
+                                >
+                                  {humanizeMissingDataLabel(item)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Secondary Supporting Context (5 cols): What We See in Your Room */}
+              <div className="lg:col-span-5 p-6 bg-[#FAFAFA] dark:bg-[#151515] flex flex-col justify-between gap-5">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-4 border-b border-[#E8E8E8] dark:border-[#242424]">
+                    <h4 className="text-xs font-bold uppercase tracking-[0.06em] text-[#0E0E0E] dark:text-[#F2F2F2]">
+                      In Your Room
+                    </h4>
+                    <span className="text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
+                      From photo
+                    </span>
+                  </div>
+
+                  <ul className="space-y-3 text-[13px] text-[#333333] dark:text-[#CCCCCC]">
+                    {activeAnalysis.roomObservations.slice(0, 3).map((obs, idx) => (
+                      <li key={idx} className="flex items-start gap-2.5 leading-snug">
+                        <span
+                          className="text-[#737373] dark:text-[#737373] font-mono select-none mt-0.5"
+                          aria-hidden="true"
+                        >
+                          —
+                        </span>
+                        <span>{obs.claim}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {/* Passed Deterministic Checks (only shown when user verified numbers pass) */}
+                {deterministic.confirmedFacts.length > 2 && (
+                  <div className="pt-4 border-t border-[#E8E8E8] dark:border-[#242424] space-y-1.5">
+                    <div className="text-[11px] font-mono uppercase tracking-[0.05em] text-emerald-700 dark:text-emerald-400">
+                      Verified Clear
+                    </div>
+                    <ul className="space-y-1 text-xs text-[#404040] dark:text-[#BDBDBD]">
+                      {deterministic.confirmedFacts.slice(2).map((fact, idx) => (
+                        <li key={idx} className="leading-snug">
+                          ✓ {fact}
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 )}
               </div>
@@ -660,9 +704,9 @@ export function ContextFitWorkspace({
               onSubmit={handleClarifySubmit}
               className="border-x border-b border-[#DFDFDF] dark:border-[#262626] px-5 py-3.5 bg-white dark:bg-[#111111] flex flex-col md:flex-row md:items-center justify-between gap-3"
             >
-              <div className="text-xs text-[#0E0E0E] dark:text-[#F2F2F2]">
-                <span className="font-mono text-[#737373] dark:text-[#8E8E93] mr-2">
-                  To verify:
+              <div className="text-[13px] text-[#0E0E0E] dark:text-[#F2F2F2]">
+                <span className="font-mono text-[11px] uppercase tracking-[0.05em] text-[#B91C1C] dark:text-[#F87171] mr-2.5">
+                  Quick Check
                 </span>
                 <span className="font-medium">{activeAnalysis.clarifyingQuestion}</span>
               </div>
@@ -676,15 +720,15 @@ export function ContextFitWorkspace({
                       ? 'e.g., 62 cm'
                       : activeAnalysis.clarifyingFieldHint === 'availableWidthCm'
                         ? 'e.g., 95 cm'
-                        : 'Enter measurement or note…'
+                        : 'Enter measurement…'
                   }
                   aria-label="Answer clarifying measurement question"
-                  className="h-9 px-3 text-xs font-mono border border-[#DFDFDF] dark:border-[#2C2C2C] bg-white dark:bg-[#161616] text-[#0E0E0E] dark:text-[#F2F2F2] focus:outline-none focus:border-[#0E0E0E] dark:focus:border-[#F2F2F2] w-44"
+                  className="h-9 px-3 text-xs font-mono border border-[#DFDFDF] dark:border-[#2C2C2C] bg-white dark:bg-[#161616] text-[#0E0E0E] dark:text-[#F2F2F2] focus:outline-none focus:border-[#0E0E0E] dark:focus:border-[#F2F2F2] w-40"
                 />
                 <button
                   type="submit"
                   disabled={!clarifyInput.trim() || isAnalyzing}
-                  className="h-9 px-4 border border-[#0E0E0E] dark:border-[#F2F2F2] text-xs font-semibold text-[#0E0E0E] dark:text-[#F2F2F2] hover:bg-[#0E0E0E] hover:text-white dark:hover:bg-[#F2F2F2] dark:hover:text-[#111111] disabled:opacity-40 transition-colors whitespace-nowrap"
+                  className="h-9 px-4 bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111] text-xs font-semibold hover:opacity-85 disabled:opacity-40 transition-opacity whitespace-nowrap"
                 >
                   Verify
                 </button>
@@ -692,15 +736,17 @@ export function ContextFitWorkspace({
             </form>
           </div>
 
-          {/* PANEL C: WHAT WOULD MAKE IT WORK? (Keep + Change Placement vs. 2 Same-Store Alternatives) */}
+          {/* PANEL C: HOW TO MAKE IT WORK (Clean Scannable 3-Option Grid) */}
           <div className="space-y-4">
-            <div>
-              <p className="text-xs font-mono text-[#737373] dark:text-[#9CA3AF]">
-                What Would Make It Work? · Minimum-Change Resolutions
-              </p>
-              <h3 className="text-xl sm:text-2xl font-bold tracking-[-0.02em] text-[#0E0E0E] dark:text-[#F2F2F2] mt-0.5">
-                Keep Your Chair with New Placement, or Compare Two Same-Store Alternatives
-              </h3>
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <p className="text-xs font-mono text-[#737373] dark:text-[#9CA3AF]">
+                  How to Make It Work · 3 Clear Paths
+                </p>
+                <h3 className="text-xl sm:text-2xl font-bold tracking-[-0.02em] text-[#0E0E0E] dark:text-[#F2F2F2] mt-0.5">
+                  Reposition This Chair, or Compare Two Same-Store Fits
+                </h3>
+              </div>
             </div>
 
             <div
@@ -710,48 +756,50 @@ export function ContextFitWorkspace({
               {/* Card 1: Keep Original Product, Change Placement */}
               <article className="p-6 lg:border-r border-b lg:border-b-0 border-[#DFDFDF] dark:border-[#262626] flex flex-col justify-between gap-5 bg-[#FAFAFA] dark:bg-[#161616]">
                 <div className="space-y-4">
-                  <div className="text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
-                    Path 01 · Keep Current Chair, Change Placement
+                  <div className="flex items-center justify-between text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
+                    <span>Option 01 · Keep &amp; Reposition</span>
+                    <span className="text-[#0E0E0E] dark:text-[#F2F2F2] font-medium">
+                      {currentChair.price}
+                    </span>
                   </div>
 
                   <div className="aspect-[4/3] bg-white border border-[#DFDFDF] dark:border-[#262626] p-4 flex items-center justify-center">
                     <SafeImage
                       src={currentChair.imageUrl}
                       alt={currentChair.name}
-                      className="max-h-44 object-contain brightness-[1.02] contrast-[1.04]"
+                      className="max-h-40 object-contain brightness-[1.02] contrast-[1.04]"
                     />
                   </div>
 
                   <div>
-                    <div className="text-xs font-mono tabular-nums text-[#666666] dark:text-[#9CA3AF]">
-                      {currentChair.name} · {currentChair.price}
+                    <div className="text-[11px] font-mono tabular-nums text-[#666666] dark:text-[#9CA3AF]">
+                      {currentChair.name} · H {currentChair.dimensions.heightCm} × W{' '}
+                      {currentChair.dimensions.widthCm} cm
                     </div>
                     <h4 className="text-base font-bold text-[#0E0E0E] dark:text-[#F2F2F2] mt-1">
                       {activeAnalysis.placementStrategy.title}
                     </h4>
-                    <p className="text-xs text-[#333333] dark:text-[#CCCCCC] leading-relaxed mt-2">
+                    <p className="text-[13px] text-[#333333] dark:text-[#CCCCCC] leading-snug mt-1.5">
                       {activeAnalysis.placementStrategy.description}
                     </p>
                   </div>
 
-                  <dl className="pt-3 border-t border-[#E5E5E5] dark:border-[#262626] space-y-2 text-xs">
-                    <div>
-                      <dt className="font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
-                        What you gain
-                      </dt>
-                      <dd className="text-[#525252] dark:text-[#A3A3A3] mt-0.5">
+                  <div className="pt-3 border-t border-[#E5E5E5] dark:border-[#262626] space-y-2 text-xs">
+                    <div className="flex items-start gap-2">
+                      <span className="font-mono font-bold text-[#0E0E0E] dark:text-[#F2F2F2] shrink-0">
+                        +
+                      </span>
+                      <span className="text-[#1F1F1F] dark:text-[#E5E5E5] leading-snug">
                         {activeAnalysis.placementStrategy.gained}
-                      </dd>
+                      </span>
                     </div>
-                    <div>
-                      <dt className="font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
-                        Trade-off
-                      </dt>
-                      <dd className="text-[#525252] dark:text-[#A3A3A3] mt-0.5">
+                    <div className="flex items-start gap-2">
+                      <span className="font-mono text-[#737373] shrink-0">−</span>
+                      <span className="text-[#666666] dark:text-[#9CA3AF] leading-snug">
                         {activeAnalysis.placementStrategy.tradeoff}
-                      </dd>
+                      </span>
                     </div>
-                  </dl>
+                  </div>
                 </div>
 
                 <div className="space-y-2 pt-2">
@@ -769,8 +817,8 @@ export function ContextFitWorkspace({
                   >
                     <span>
                       {visualRenders[`placement-${currentChair.id}`]?.status === 'rendering'
-                        ? 'Rendering placement preview…'
-                        : 'Visualize New Placement in Room'}
+                        ? 'Rendering preview…'
+                        : 'Preview New Placement'}
                     </span>
                     {visualRenders[`placement-${currentChair.id}`]?.status === 'rendering' ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -808,7 +856,7 @@ export function ContextFitWorkspace({
                   >
                     <div className="space-y-4">
                       <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
-                        <span>Path 0{idx + 2} · Same-Store Alternative</span>
+                        <span>Option 0{idx + 2} · Same-Store Fit</span>
                         <span className="text-[#0E0E0E] dark:text-[#F2F2F2] font-medium">
                           {chair.price}
                         </span>
@@ -818,39 +866,39 @@ export function ContextFitWorkspace({
                         <SafeImage
                           src={chair.imageUrl}
                           alt={chair.name}
-                          className="max-h-44 object-contain brightness-[1.02] contrast-[1.04]"
+                          className="max-h-40 object-contain brightness-[1.02] contrast-[1.04]"
                         />
                       </div>
 
                       <div>
                         <div className="text-[11px] font-mono tabular-nums text-[#666666] dark:text-[#9CA3AF]">
-                          H {chair.dimensions.heightCm} × W {chair.dimensions.widthCm} × D{' '}
-                          {chair.dimensions.depthCm} cm · {chair.backProfile}
+                          H {chair.dimensions.heightCm} × W {chair.dimensions.widthCm} cm ·{' '}
+                          {chair.backProfile}
                         </div>
                         <h4 className="text-base font-bold text-[#0E0E0E] dark:text-[#F2F2F2] mt-1">
                           {chair.name}
                         </h4>
-                        <p className="text-xs text-[#333333] dark:text-[#CCCCCC] leading-relaxed mt-2">
+                        <p className="text-[13px] text-[#333333] dark:text-[#CCCCCC] leading-snug mt-1.5">
                           {alt.reason}
                         </p>
                       </div>
 
-                      <dl className="pt-3 border-t border-[#EFEFEF] dark:border-[#222222] space-y-2 text-xs">
-                        <div>
-                          <dt className="font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
-                            What you gain
-                          </dt>
-                          <dd className="text-[#525252] dark:text-[#A3A3A3] mt-0.5">{alt.gained}</dd>
+                      <div className="pt-3 border-t border-[#EFEFEF] dark:border-[#222222] space-y-2 text-xs">
+                        <div className="flex items-start gap-2">
+                          <span className="font-mono font-bold text-[#0E0E0E] dark:text-[#F2F2F2] shrink-0">
+                            +
+                          </span>
+                          <span className="text-[#1F1F1F] dark:text-[#E5E5E5] leading-snug">
+                            {alt.gained}
+                          </span>
                         </div>
-                        <div>
-                          <dt className="font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
-                            Trade-off
-                          </dt>
-                          <dd className="text-[#525252] dark:text-[#A3A3A3] mt-0.5">
+                        <div className="flex items-start gap-2">
+                          <span className="font-mono text-[#737373] shrink-0">−</span>
+                          <span className="text-[#666666] dark:text-[#9CA3AF] leading-snug">
                             {alt.tradeoff}
-                          </dd>
+                          </span>
                         </div>
-                      </dl>
+                      </div>
                     </div>
 
                     <div className="space-y-2 pt-2">
