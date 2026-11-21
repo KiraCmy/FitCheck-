@@ -149,6 +149,11 @@ const CONTEXTFIT_RESPONSE_SCHEMA = {
         required: ['title', 'claim', 'productFact', 'status', 'missingData'],
       },
     },
+    initialPlacementHint: {
+      type: Type.STRING,
+      description:
+        'Concrete 1-sentence floor placement direction honoring the shopper goal inside this exact room photo, anchored to real visible landmarks (walls, doors, windows, floor edges) and explicitly keeping all existing objects untouched.',
+    },
     placementStrategy: {
       type: Type.OBJECT,
       properties: {
@@ -159,7 +164,7 @@ const CONTEXTFIT_RESPONSE_SCHEMA = {
         renderHint: {
           type: Type.STRING,
           description:
-            'Short visual placement instruction for compositing the current chair in this revised spot in the room photo.',
+            'Concrete 1-sentence visual floor placement instruction for the revised spot anchored to exact visible landmarks in this room photo, specifying orientation and keeping all existing objects untouched.',
         },
       },
       required: ['title', 'description', 'gained', 'tradeoff', 'renderHint'],
@@ -194,6 +199,7 @@ const CONTEXTFIT_RESPONSE_SCHEMA = {
     'roomObservations',
     'constraints',
     'potentialConflicts',
+    'initialPlacementHint',
     'placementStrategy',
     'alternatives',
     'clarifyingQuestion',
@@ -249,7 +255,8 @@ export async function runContextFitAnalysis(
     '   - planRevisionSummary: 1 clear sentence (<= 22 words) explaining what changed.',
     '5. Recommend EXACTLY 2 alternative products strictly using valid "productId" values from the provided merchant catalog (excluding the currently viewed productId).',
     '6. When the shopper provides a follow-up preference shift (e.g. "But I really love the high-back design"), genuinely revise your strategy while explaining the trade-off.',
-    '7. Write in calm, editorial English.',
+    '7. For "initialPlacementHint" and "placementStrategy.renderHint", name the EXACT open floor patch and adjacent visible landmarks in the photo (e.g., wall, doorway, window, rug edge, corridor floor) plus natural chair facing angle, and explicitly state not to move or remove existing room objects.',
+    '8. Write in calm, editorial English.',
   ].join('\n');
 
   const measurementLines: string[] = [];
@@ -473,6 +480,10 @@ export async function runContextFitAnalysis(
     roomObservations,
     constraints,
     potentialConflicts: mergedConflicts,
+    initialPlacementHint:
+      typeof parsed.initialPlacementHint === 'string' && parsed.initialPlacementHint.trim()
+        ? parsed.initialPlacementHint.trim()
+        : undefined,
     placementStrategy: {
       title: String(rawPlacement.title ?? 'Angle chair along the solid wall'),
       description: String(
@@ -487,7 +498,7 @@ export async function runContextFitAnalysis(
       ),
       renderHint: String(
         rawPlacement.renderHint ??
-          'Place the chair against the solid right plaster wall, angled 30 degrees toward the window so it does not block the window glass.'
+          'Place the chair standing firmly on the open floor near the solid side wall, angled 25 degrees inward without moving any existing furniture or decor.'
       ),
     },
     alternatives: groundedAlternatives,

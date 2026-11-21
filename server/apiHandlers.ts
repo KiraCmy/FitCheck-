@@ -339,6 +339,34 @@ export async function handleSceneRender(req: ApiRequest, res: ApiResponse): Prom
       return;
     }
 
+    const rawPin = body.placementPin as Record<string, unknown> | undefined;
+    const placementPin =
+      rawPin &&
+      typeof rawPin === 'object' &&
+      typeof rawPin.xPercent === 'number' &&
+      typeof rawPin.yPercent === 'number' &&
+      Number.isFinite(rawPin.xPercent) &&
+      Number.isFinite(rawPin.yPercent)
+        ? { xPercent: rawPin.xPercent, yPercent: rawPin.yPercent }
+        : undefined;
+
+    const rawDims = body.dimensionsCm as Record<string, unknown> | undefined;
+    const dimensionsCm =
+      rawDims &&
+      typeof rawDims === 'object' &&
+      typeof rawDims.heightCm === 'number' &&
+      typeof rawDims.widthCm === 'number' &&
+      typeof rawDims.depthCm === 'number' &&
+      Number.isFinite(rawDims.heightCm) &&
+      Number.isFinite(rawDims.widthCm) &&
+      Number.isFinite(rawDims.depthCm)
+        ? {
+            heightCm: rawDims.heightCm,
+            widthCm: rawDims.widthCm,
+            depthCm: rawDims.depthCm,
+          }
+        : undefined;
+
     const result = await renderProductInRoom({
       roomImageBase64,
       roomMimeType: typeof body.roomMimeType === 'string' ? body.roomMimeType : undefined,
@@ -356,6 +384,8 @@ export async function handleSceneRender(req: ApiRequest, res: ApiResponse): Prom
       placement,
       lightingMood,
       customNotes: typeof body.customNotes === 'string' ? body.customNotes : undefined,
+      placementPin,
+      dimensionsCm,
     });
 
     sendJson(res, 200, result);

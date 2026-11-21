@@ -6,7 +6,7 @@ import type {
   UserMeasurements,
   VisualPreviewRender,
 } from './types/contextFit';
-import type { RoomPhoto, SupportedAspectRatio } from './types/studio';
+import type { PlacementPin, RoomPhoto, SupportedAspectRatio } from './types/studio';
 import {
   APARTMENT_WINDOW_ROOM,
   INITIAL_GOAL_PROMPTS,
@@ -80,8 +80,9 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Room photo (HTML canvas resized to max 1400px)
+  // Room photo (HTML canvas resized to max 1400px) & optional exact placement pin
   const [roomPhoto, setRoomPhoto] = useState<RoomPhoto | null>(null);
+  const [placementPin, setPlacementPin] = useState<PlacementPin | null>(null);
   const [isProcessingRoom, setIsProcessingRoom] = useState(false);
   const [roomError, setRoomError] = useState<string | null>(null);
 
@@ -123,6 +124,7 @@ export default function App() {
         APARTMENT_WINDOW_ROOM.name
       );
       setRoomPhoto(optimized);
+      setPlacementPin(null);
     } catch (err) {
       setRoomError(err instanceof Error ? err.message : 'Unable to load sample apartment photo.');
     } finally {
@@ -183,6 +185,7 @@ export default function App() {
     try {
       const optimized = await optimizeRoomImageFile(file);
       setRoomPhoto(optimized);
+      setPlacementPin(null);
       setTurns([]);
       setActiveTurnIndex(0);
       setVisualRenders({});
@@ -198,13 +201,21 @@ export default function App() {
     async (
       key: string,
       chair: MerchantChair,
-      customPlacementHint?: string,
-      isPrimaryCheck?: boolean
+      options?: {
+        customPlacementHint?: string;
+        isPrimaryCheck?: boolean;
+        usePinnedSpot?: boolean;
+      }
     ) => {
       if (!roomPhoto) return;
+      const isPrimaryCheck = Boolean(options?.isPrimaryCheck);
+      const customPlacementHint = options?.customPlacementHint?.trim();
+      const usePinnedSpot = options?.usePinnedSpot !== false;
+      const activePin = usePinnedSpot ? placementPin : null;
+
       const label = isPrimaryCheck
         ? `${chair.name} in Your Room`
-        : customPlacementHint
+        : !usePinnedSpot && customPlacementHint
           ? `${chair.shortTitle} (Repositioned)`
           : `${chair.shortTitle} (${chair.dimensions.heightCm} cm H)`;
 
@@ -223,10 +234,11 @@ export default function App() {
 
       try {
         const productImageBase64 = await imageUrlToDataUrl(chair.imageUrl);
-        const notes = isPrimaryCheck
-          ? `Shopper intent: "${customPlacementHint || userGoal.trim()}". Place the ${chair.name} (${chair.dimensions.heightCm} cm H × ${chair.dimensions.widthCm} cm W, ${chair.material}) naturally into the photographed space with realistic perspective, contact shadows, and scale.`
-          : customPlacementHint ||
-            `Shopper intent: "${userGoal.trim()}". Place the ${chair.name} (${chair.dimensions.heightCm} cm H × ${chair.dimensions.widthCm} cm W, ${chair.backProfile.toLowerCase()}) naturally into the photographed space with realistic scale and lighting.`;
+        const notes = activePin
+          ? `Place the ${chair.name} standing firmly on the floor right at the pinned coordinate, angled naturally into the space. Shopper intent: "${userGoal.trim()}". Keep every existing wall, door, window, floor surface, person, bag, and furniture piece in Image 1 completely unchanged.`
+          : customPlacementHint
+            ? `${customPlacementHint} Shopper intent: "${userGoal.trim()}". Keep every existing wall, door, window, floor surface, person, bag, and furniture piece in Image 1 completely unchanged.`
+            : `Shopper intent: "${userGoal.trim()}". Place the ${chair.name} standing firmly on a clear, unobstructed floor area matching the shopper intent without moving or altering any existing objects in Image 1.`;
 
         const res = await fetch('/api/scene/render', {
           method: 'POST',
@@ -241,9 +253,15 @@ export default function App() {
             productName: chair.name,
             productBrand: chair.designer,
             variantLabel: `${chair.finish} · ${chair.backProfile}`,
-            placement: 'Smart Auto',
+            placement: 'Floor / Corner',
             lightingMood: 'Match Room',
             customNotes: notes,
+            placementPin: activePin ?? undefined,
+            dimensionsCm: {
+              heightCm: chair.dimensions.heightCm,
+              widthCm: chair.dimensions.widthCm,
+              depthCm: chair.dimensions.depthCm,
+            },
           }),
         });
         const data = await parseJsonResponse<{
@@ -273,7 +291,7 @@ export default function App() {
         }));
       }
     },
-    [roomPhoto, userGoal]
+    [roomPhoto, userGoal, placementPin]
   );
 
   const handleRunAnalysis = async () => {
@@ -281,9 +299,16 @@ export default function App() {
     setIsAnalyzing(true);
     setAnalysisError(null);
 
-    // Automatically generate the product-in-user-room scene image in parallel with fit analysis
     const primaryKey = `primary-${currentChair.id}`;
-    void handleVisualizeInRoom(primaryKey, currentChair, userGoal.trim(), true);
+    // If the user pinned an exact floor spot, start rendering immediately in parallel.
+    // Otherwise, wait for ContextFit analysis to identify exact room landmarks first so placement is grounded, not random.
+    const startedEarlyRender = Boolean(placementPin);
+    if (startedEarlyRender) {
+      void handleVisualizeInRoom(primaryKey, currentChair, {
+        isPrimaryCheck: true,
+        usePinnedSpot: true,
+      });
+    }
 
     try {
       const res = await fetch('/api/contextfit/analyze', {
@@ -309,6 +334,14 @@ export default function App() {
       }
       setTurns([data.analysis]);
       setActiveTurnIndex(0);
+
+      if (!startedEarlyRender) {
+        void handleVisualizeInRoom(primaryKey, currentChair, {
+          customPlacementHint: data.analysis.initialPlacementHint || userGoal.trim(),
+          isPrimaryCheck: true,
+          usePinnedSpot: false,
+        });
+      }
     } catch (err) {
       setAnalysisError(
         err instanceof Error ? err.message : 'Could not complete fit analysis.'
@@ -444,6 +477,7 @@ export default function App() {
           currentChair={currentChair}
           catalog={catalog}
           roomPhoto={roomPhoto}
+          placementPin={placementPin}
           isProcessingRoom={isProcessingRoom}
           roomError={roomError}
           userGoal={userGoal}
@@ -455,6 +489,7 @@ export default function App() {
           visualRenders={visualRenders}
           activePreviewKey={activePreviewKey}
           onSelectPreviewKey={setActivePreviewKey}
+          onChangePlacementPin={setPlacementPin}
           onUploadRoomFile={handleUploadRoomFile}
           onUseSampleRoom={loadSampleApartmentRoom}
           onChangeGoal={setUserGoal}

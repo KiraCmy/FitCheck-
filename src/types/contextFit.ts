@@ -94,6 +94,7 @@ export interface ContextFitAnalysis {
   roomObservations: RoomObservation[];
   constraints: ParsedConstraint[];
   potentialConflicts: ConflictItem[];
+  initialPlacementHint?: string;
   placementStrategy: PlacementStrategy;
   alternatives: AlternativeRecommendation[];
   clarifyingQuestion: string;
