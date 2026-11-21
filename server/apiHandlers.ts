@@ -3,13 +3,14 @@ import {
   getShopifyProductDetails,
   lookupShopifyCatalogByUrl,
   searchShopifyCatalog,
-} from './shopifyMcp';
-import { renderProductInRoom } from './geminiRender';
-import { runContextFitAnalysis } from './contextFitAgent';
-import { MERCHANT_CHAIRS } from '../src/data/merchantCatalog';
+} from './shopifyMcp.js';
+import { RENDER_MODEL, renderProductInRoom } from './geminiRender.js';
+import { ANALYSIS_MODEL, runContextFitAnalysis } from './contextFitAgent.js';
+import { MERCHANT_CHAIRS } from '../src/data/merchantCatalog.js';
 import type { MerchantChair, UserMeasurements } from '../src/types/contextFit';
 import type { LightingMood, PlacementOption } from '../src/types/studio';
-import { LIGHTING_MOODS, PLACEMENT_OPTIONS } from '../src/types/studio';
+import { LIGHTING_MOODS, PLACEMENT_OPTIONS } from '../src/types/studio.js';
+import { redactSecrets } from './redactSecrets.js';
 
 export interface ApiRequest extends IncomingMessage {
   body?: unknown;
@@ -67,25 +68,94 @@ async function readJsonBody(req: ApiRequest): Promise<Record<string, unknown>> {
   }
 }
 
+function readHttpStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const record = err as { status?: unknown; statusCode?: unknown };
+  for (const value of [record.status, record.statusCode]) {
+    if (typeof value === 'number' && value >= 400 && value <= 599) return value;
+  }
+  return undefined;
+}
+
 export function formatApiError(err: unknown): { status: number; message: string } {
-  const message = err instanceof Error ? err.message : 'Unexpected server error.';
-  if (/API_KEY_INVALID|PERMISSION_DENIED|403/i.test(message)) {
+  const raw = err instanceof Error ? err.message : 'Unexpected server error.';
+  const message = redactSecrets(raw);
+  let upstream = readHttpStatus(err);
+
+  if (/GEMINI_API_KEY is not configured/i.test(message)) {
+    return {
+      status: 503,
+      message:
+        'GEMINI_API_KEY is not configured on the server. Add it in Vercel → Settings → Environment Variables for Production, then redeploy.',
+    };
+  }
+
+  if (upstream === undefined) {
+    if (/API_KEY_INVALID|PERMISSION_DENIED|UNAUTHENTICATED|\b401\b|\b403\b/i.test(message)) {
+      upstream = 403;
+    } else if (/RESOURCE_EXHAUSTED|\b429\b/i.test(message)) {
+      upstream = 429;
+    } else if (/NOT_FOUND|is not found|not supported for generateContent/i.test(message)) {
+      upstream = 404;
+    } else if (/INVALID_ARGUMENT|Invalid JSON|\brequired\b|\bmissing\b/i.test(message)) {
+      upstream = 400;
+    }
+  }
+
+  if (upstream === 401 || upstream === 403) {
     return {
       status: 403,
       message:
-        'Gemini API key was rejected. Please verify GEMINI_API_KEY in your environment variables.',
+        'Gemini API key was rejected. Verify GEMINI_API_KEY in the Vercel project environment variables.',
     };
   }
-  if (/RESOURCE_EXHAUSTED|429/i.test(message)) {
+  if (upstream === 429) {
     return {
       status: 429,
-      message: 'Gemini quota exceeded. Please check billing on your GEMINI_API_KEY.',
+      message: 'Gemini quota exceeded. Check rate limits and billing for this API key.',
     };
   }
-  if (/required|invalid|missing/i.test(message)) {
+  if (upstream === 404) {
+    return {
+      status: 502,
+      message: 'The configured Gemini model was not found or does not support this request.',
+    };
+  }
+  if (upstream === 400) {
     return { status: 400, message };
   }
+  if (upstream && upstream >= 400 && upstream < 500) {
+    return { status: upstream, message };
+  }
+  if (upstream && upstream >= 500) {
+    const looksLikeUpstreamDump =
+      /got status:|\{"error"|generativelanguage\.googleapis/i.test(message);
+    if (looksLikeUpstreamDump) {
+      return {
+        status: 502,
+        message: 'The Gemini request failed. The redacted error was written to the server logs.',
+      };
+    }
+    return { status: upstream, message };
+  }
   return { status: 500, message };
+}
+
+function logApiFailure(route: string, err: unknown, status: number): void {
+  const detail = redactSecrets(
+    err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  ).slice(0, 1000);
+  console.error(`[api] ${route} failed`, {
+    status,
+    detail,
+    hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
+  });
+}
+
+function fail(res: ApiResponse, route: string, err: unknown): void {
+  const { status, message } = formatApiError(err);
+  logApiFailure(route, err, status);
+  sendJson(res, status, { error: message, status });
 }
 
 function isSafeExternalUrl(rawUrl: string): boolean {
@@ -115,8 +185,8 @@ export function handleHealth(_req: ApiRequest, res: ApiResponse): void {
   sendJson(res, 200, {
     ok: true,
     hasGeminiKey: Boolean(process.env.GEMINI_API_KEY),
-    analysisModel: 'gemini-4-hydrogen',
-    renderModel: 'gemini-3.1-flash-lite-image',
+    analysisModel: ANALYSIS_MODEL,
+    renderModel: RENDER_MODEL,
   });
 }
 
@@ -172,8 +242,7 @@ export async function handleContextFitAnalyze(req: ApiRequest, res: ApiResponse)
 
     sendJson(res, 200, result);
   } catch (err) {
-    const { status, message } = formatApiError(err);
-    sendJson(res, status, { error: message });
+    fail(res, 'contextfit/analyze', err);
   }
 }
 
@@ -240,8 +309,7 @@ export async function handleContextFitRevise(req: ApiRequest, res: ApiResponse):
 
     sendJson(res, 200, result);
   } catch (err) {
-    const { status, message } = formatApiError(err);
-    sendJson(res, status, { error: message });
+    fail(res, 'contextfit/revise', err);
   }
 }
 
@@ -292,8 +360,7 @@ export async function handleSceneRender(req: ApiRequest, res: ApiResponse): Prom
 
     sendJson(res, 200, result);
   } catch (err) {
-    const { status, message } = formatApiError(err);
-    sendJson(res, status, { error: message });
+    fail(res, 'scene/render', err);
   }
 }
 
@@ -340,8 +407,9 @@ export async function handleImageProxy(req: ApiRequest, res: ApiResponse): Promi
       res.statusCode = 200;
       res.end(buf);
     }
-  } catch {
-    sendJson(res, 502, { error: 'Failed to proxy external image.' });
+  } catch (err) {
+    logApiFailure('image-proxy', err, 502);
+    sendJson(res, 502, { error: 'Failed to proxy external image.', status: 502 });
   } finally {
     clearTimeout(timer);
   }
@@ -356,8 +424,11 @@ export async function handleShopifySearch(req: ApiRequest, res: ApiResponse): Pr
     const products = await searchShopifyCatalog(query, limit);
     sendJson(res, 200, { products });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Shopify catalog search failed.';
-    sendJson(res, 502, { error: message });
+    logApiFailure('shopify/search', err, 502);
+    const message = redactSecrets(
+      err instanceof Error ? err.message : 'Shopify catalog search failed.'
+    );
+    sendJson(res, 502, { error: message, status: 502 });
   }
 }
 
@@ -373,8 +444,9 @@ export async function handleShopifyLookup(req: ApiRequest, res: ApiResponse): Pr
     const products = await lookupShopifyCatalogByUrl(queryOrUrl);
     sendJson(res, 200, { products });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Shopify URL lookup failed.';
-    sendJson(res, 502, { error: message });
+    logApiFailure('shopify/lookup', err, 502);
+    const message = redactSecrets(err instanceof Error ? err.message : 'Shopify URL lookup failed.');
+    sendJson(res, 502, { error: message, status: 502 });
   }
 }
 
@@ -390,7 +462,10 @@ export async function handleShopifyProduct(req: ApiRequest, res: ApiResponse): P
     }
     sendJson(res, 200, { product });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to fetch Shopify product details.';
-    sendJson(res, 502, { error: message });
+    logApiFailure('shopify/product', err, 502);
+    const message = redactSecrets(
+      err instanceof Error ? err.message : 'Failed to fetch Shopify product details.'
+    );
+    sendJson(res, 502, { error: message, status: 502 });
   }
 }

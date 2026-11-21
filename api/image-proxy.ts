@@ -1,3 +1,3 @@
-import { handleImageProxy } from '../server/apiHandlers';
+import { handleImageProxy } from '../server/apiHandlers.js';
 
 export default handleImageProxy;

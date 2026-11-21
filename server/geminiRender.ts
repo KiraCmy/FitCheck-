@@ -2,17 +2,15 @@ import fs from 'fs/promises';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
 import type { LightingMood, PlacementOption, SupportedAspectRatio } from '../src/types/studio';
-import { buildRoomRenderPrompt, chooseNearestAspectRatio } from '../src/utils/sceneMath';
+import { buildRoomRenderPrompt, chooseNearestAspectRatio } from '../src/utils/sceneMath.js';
 
-const MODEL_NAME = 'gemini-3.1-flash-lite-image';
+export const RENDER_MODEL = 'gemini-3.1-flash-lite-image';
 const FALLBACK_RENDER_MODEL = 'gemini-2.5-flash-image';
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      'GEMINI_API_KEY is not configured on the server. Add your Gemini API key in Settings > Secrets.'
-    );
+    throw new Error('GEMINI_API_KEY is not configured on the server.');
   }
   return new GoogleGenAI({
     apiKey,
@@ -164,11 +162,11 @@ export async function renderProductInRoom(
     customNotes: input.customNotes,
   });
 
-  let activeModelUsed = MODEL_NAME;
+  let activeModelUsed = RENDER_MODEL;
   let response;
   try {
     response = await ai.models.generateContent({
-      model: MODEL_NAME,
+      model: RENDER_MODEL,
       contents: {
         parts: [
           {

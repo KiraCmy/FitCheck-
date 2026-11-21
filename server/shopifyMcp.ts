@@ -1,5 +1,5 @@
 import type { ProductItem } from '../src/types/studio';
-import { normalizeShopifyProduct, normalizeShopifySearchResponse } from '../src/utils/sceneMath';
+import { normalizeShopifyProduct, normalizeShopifySearchResponse } from '../src/utils/sceneMath.js';
 
 const SHOPIFY_MCP_ENDPOINT = 'https://mcp.shop.com/';
 const MCP_PROTOCOL_VERSION = '2026-07-28';

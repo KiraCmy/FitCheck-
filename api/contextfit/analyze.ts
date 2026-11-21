@@ -1,3 +1,3 @@
-import { handleContextFitAnalyze } from '../../server/apiHandlers';
+import { handleContextFitAnalyze } from '../../server/apiHandlers.js';
 
 export default handleContextFitAnalyze;

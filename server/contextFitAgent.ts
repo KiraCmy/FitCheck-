@@ -16,17 +16,16 @@ import {
   humanizeMissingDataLabel,
   mergeDeterministicAndModelConflicts,
   parseMeasurementsFromText,
-} from '../src/utils/contextFitLogic';
+} from '../src/utils/contextFitLogic.js';
+import { redactSecrets } from './redactSecrets.js';
 
-const ANALYSIS_MODEL = 'gemini-4-hydrogen';
-const FALLBACK_ANALYSIS_MODEL = 'gemini-2.5-flash';
+export const ANALYSIS_MODEL = 'gemini-4-hydrogen';
+export const FALLBACK_ANALYSIS_MODEL = 'gemini-3.8-flash';
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error(
-      'GEMINI_API_KEY is not configured on the server. Add your Gemini API key in Settings > Secrets.'
-    );
+    throw new Error('GEMINI_API_KEY is not configured on the server.');
   }
   return new GoogleGenAI({
     apiKey,
@@ -36,6 +35,27 @@ function getGeminiClient(): GoogleGenAI {
       },
     },
   });
+}
+
+function parseModelJson(raw: string): Record<string, unknown> {
+  const trimmed = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '');
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Model JSON was not an object.');
+    }
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    const detail = redactSecrets(err instanceof Error ? err.message : 'invalid JSON').slice(0, 200);
+    console.error('[contextfit] model response was not JSON', { detail });
+    throw Object.assign(
+      new Error('ContextFit analysis model returned a response that was not valid JSON.'),
+      { status: 502 }
+    );
+  }
 }
 
 function stripDataUrlPrefix(input: string): { base64: string; mimeType: string } {
@@ -298,6 +318,11 @@ export async function runContextFitAnalysis(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/404|NOT_FOUND|not found|not supported/i.test(msg)) {
+      console.error('[contextfit] analysis model unavailable, trying fallback', {
+        from: ANALYSIS_MODEL,
+        to: FALLBACK_ANALYSIS_MODEL,
+        detail: redactSecrets(msg).slice(0, 500),
+      });
       activeModelUsed = FALLBACK_ANALYSIS_MODEL;
       response = await ai.models.generateContent({
         model: FALLBACK_ANALYSIS_MODEL,
@@ -327,10 +352,12 @@ export async function runContextFitAnalysis(
 
   const rawJson = (response.text ?? '').trim();
   if (!rawJson) {
-    throw new Error('ContextFit analysis model returned an empty response.');
+    throw Object.assign(new Error('ContextFit analysis model returned an empty response.'), {
+      status: 502,
+    });
   }
 
-  const parsed = JSON.parse(rawJson) as Record<string, unknown>;
+  const parsed = parseModelJson(rawJson);
 
   const rawObs = Array.isArray(parsed.roomObservations) ? parsed.roomObservations : [];
   const roomObservations: RoomObservation[] = rawObs

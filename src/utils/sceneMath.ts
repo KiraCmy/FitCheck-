@@ -6,7 +6,7 @@ import type {
   SceneSettings,
   SupportedAspectRatio,
 } from '../types/studio';
-import { MAX_ROOM_IMAGE_SIDE, MAX_SHORTLIST_ITEMS } from '../types/studio';
+import { MAX_ROOM_IMAGE_SIDE, MAX_SHORTLIST_ITEMS } from '../types/studio.js';
 
 const ASPECT_RATIO_CANDIDATES: ReadonlyArray<{
   label: SupportedAspectRatio;

@@ -9,7 +9,7 @@ import {
   handleShopifyLookup,
   handleShopifyProduct,
   handleShopifySearch,
-} from './apiHandlers';
+} from './apiHandlers.js';
 
 export function createApiApp(): express.Express {
   const app = express();
