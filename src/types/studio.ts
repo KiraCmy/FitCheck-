@@ -61,6 +61,17 @@ export interface RoomPhoto {
   aspectRatio: SupportedAspectRatio;
 }
 
+export interface PlacementPin {
+  xPercent: number;
+  yPercent: number;
+}
+
+export interface ProductDimensionsCm {
+  heightCm: number;
+  widthCm: number;
+  depthCm: number;
+}
+
 export interface SceneSettings {
   placement: PlacementOption;
   lightingMood: LightingMood;

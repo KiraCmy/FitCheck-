@@ -1,6 +1,8 @@
 import type {
   LightingMood,
   PlacementOption,
+  PlacementPin,
+  ProductDimensionsCm,
   ProductItem,
   ProductVariant,
   SceneSettings,
@@ -459,6 +461,38 @@ export function normalizeShopifySearchResponse(payload: unknown): ProductItem[] 
   return items;
 }
 
+export function clampPlacementPin(pin: PlacementPin): PlacementPin {
+  const safeX = Number.isFinite(pin.xPercent) ? pin.xPercent : 50;
+  const safeY = Number.isFinite(pin.yPercent) ? pin.yPercent : 72;
+  return {
+    xPercent: Math.round(Math.max(4, Math.min(96, safeX))),
+    yPercent: Math.round(Math.max(10, Math.min(96, safeY))),
+  };
+}
+
+export function describePlacementPin(pin: PlacementPin): string {
+  const clamped = clampPlacementPin(pin);
+  const horiz =
+    clamped.xPercent < 28
+      ? 'far left'
+      : clamped.xPercent < 44
+        ? 'left-center'
+        : clamped.xPercent <= 56
+          ? 'horizontal center'
+          : clamped.xPercent <= 72
+            ? 'right-center'
+            : 'far right';
+
+  const vert =
+    clamped.yPercent < 45
+      ? 'upper-mid depth'
+      : clamped.yPercent < 68
+        ? 'midground floor'
+        : 'foreground floor';
+
+  return `x=${clamped.xPercent}% from left edge, y=${clamped.yPercent}% from top edge (${horiz}, ${vert})`;
+}
+
 export interface RoomRenderPromptParams {
   productName: string;
   productBrand?: string;
@@ -466,38 +500,41 @@ export interface RoomRenderPromptParams {
   placement: PlacementOption;
   lightingMood: LightingMood;
   customNotes?: string;
+  placementPin?: PlacementPin | null;
+  dimensionsCm?: ProductDimensionsCm | null;
 }
 
 /**
- * Constructs a strict interior compositing prompt for gemini-3.1-flash-lite-image.
+ * Constructs a strict interior photo-editing & compositing prompt for gemini-3.1-flash-lite-image.
+ * Enforces pixel-faithful background preservation (zero scene drift) and physically grounded placement.
  */
 export function buildRoomRenderPrompt(params: RoomRenderPromptParams): string {
   const lightingInstruction: Record<LightingMood, string> = {
     'Match Room':
-      'Match the exact existing ambient lighting, color temperature, direction of window light, and shadow softness already present in the room photo.',
+      'Match the exact existing ambient lighting, color temperature, shadow direction, shadow softness, exposure, and camera sensor grain of Image 1. Do NOT re-light or color-grade the room.',
     'Warm Lamp':
-      'Apply a warm 2700K cozy interior glow around the product and immediate surfaces, casting soft amber highlights and realistic warm shadows while keeping the rest of the room natural.',
+      'Apply a warm 2700K cozy interior glow around the inserted product and immediate floor surface, casting soft amber highlights and realistic warm shadows while keeping the rest of Image 1 unchanged.',
     'Natural Light':
-      'Illuminate the product with soft, balanced natural window daylight matching the room perspective, with crisp soft-edged contact shadows and subtle surface reflections.',
+      'Illuminate the inserted product with soft natural window daylight matching Image 1’s window direction, with soft-edged contact shadows while keeping the rest of Image 1 unchanged.',
   };
 
   const placementInstruction: Record<PlacementOption, string> = {
     'Smart Auto':
-      'Place the product in the most natural, visually balanced spot in the room appropriate for this product type, replacing any conflicting small clutter only if strictly necessary.',
+      'Place the product on the clearest unobstructed open floor area that matches the user’s stated spot in Image 1. NEVER move, erase, or replace existing furniture, bags, doors, people, or fixtures.',
     'Desk / Table':
-      'Place the product neatly on the desk or table surface visible in the room, grounded with accurate perspective and scale.',
+      'Place the product neatly on the desk or table surface visible in Image 1, grounded with accurate perspective and scale.',
     'Coffee Table':
-      'Place the product naturally on the coffee table surface in the foreground, grounded with accurate scale and realistic contact shadow.',
+      'Place the product naturally on the coffee table surface in the foreground of Image 1, grounded with accurate scale and realistic contact shadow.',
     'Floor / Corner':
-      'Place the product standing naturally on the floor or in an open corner of the room with realistic perspective and grounded shadows.',
+      'Place the product standing firmly on the open floor in the indicated corner or corridor area of Image 1, with all legs resting flat on the floor plane and angled naturally into the room.',
     'Shelf / Bookcase':
-      'Place the product neatly on a visible shelf, sideboard, console, or bookcase ledge in the room.',
+      'Place the product neatly on a visible shelf, sideboard, console, or bookcase ledge in Image 1.',
     Nightstand:
-      'Place the product neatly on the nightstand or side table surface with natural proportions.',
+      'Place the product neatly on the nightstand or side table surface in Image 1 with natural proportions.',
     Countertop:
-      'Place the product neatly on the countertop or console surface with accurate reflections and grounding.',
+      'Place the product neatly on the countertop or console surface in Image 1 with accurate reflections and grounding.',
     'Wall Mounted':
-      'Mount the product cleanly on the main visible wall at realistic eye-level height with subtle wall shadows.',
+      'Mount the product cleanly on the main visible wall in Image 1 at realistic eye-level height with subtle wall shadows.',
   };
 
   const productDescriptor = [
@@ -509,21 +546,56 @@ export function buildRoomRenderPrompt(params: RoomRenderPromptParams): string {
     .trim();
 
   const lines = [
-    'You are an expert architectural interior visualizer.',
-    'Image 1 is the user’s real room photograph. Image 2 is the reference photograph of the exact product to place into Image 1.',
-    `Task: Photorealistically composite the exact product "${productDescriptor}" from Image 2 into the room in Image 1.`,
-    'Strict preservation rules:',
-    '- Preserve the exact room architecture, walls, windows, flooring, camera angle, framing, and all other furniture from Image 1 without altering the room layout.',
-    '- Faithfully preserve the exact design, silhouette, material texture, finish, and colors of the product from Image 2.',
-    `- Placement: ${placementInstruction[params.placement]}`,
-    `- Lighting: ${lightingInstruction[params.lightingMood]}`,
-    '- Realism: Ensure physically accurate scale relative to surrounding furniture, perspective alignment, contact shadows, ambient occlusion, and natural reflections.',
+    'You are a precision photographic retoucher performing strict in-place object insertion.',
+    'IMAGE 1 is the LOCKED base room photograph. IMAGE 2 is the studio product reference of the exact item to insert.',
+    `TASK: Insert ONLY the single "${productDescriptor}" from Image 2 into Image 1 as a seamless, physically accurate photographic edit.`,
+    '',
+    'NON-NEGOTIABLE BACKGROUND LOCK (ZERO SCENE DRIFT):',
+    '1. Treat Image 1 as a locked camera photograph. Preserve the EXACT framing, crop, lens focal length, camera angle, horizon line, and aspect ratio of Image 1 — do NOT zoom, pan, tilt, or recompose.',
+    '2. Keep EVERY pixel outside the inserted product and its immediate contact shadow IDENTICAL to Image 1: do NOT alter, redraw, repaint, move, or remove any walls, doors, windows, floor planks/tiles, rugs, signs, curtains, furniture, bags, stanchions, clutter, or people visible in Image 1.',
+    '3. Keep Image 1’s exact white balance, exposure, contrast, and background sharpness completely unchanged.',
+    '',
+    'PRODUCT FIDELITY:',
+    `4. Faithfully reproduce the exact silhouette, proportions, leg geometry, upholstery/wood texture, color, and finish of "${productDescriptor}" from Image 2. Do not invent extra decor, pillows, lamps, or rugs.`,
+    '',
+    'EXACT PLACEMENT & 3D GROUNDING:',
   ];
 
-  if (params.customNotes && params.customNotes.trim()) {
-    lines.push(`- Additional user instructions: ${params.customNotes.trim()}`);
+  if (params.placementPin) {
+    const pinDesc = describePlacementPin(params.placementPin);
+    lines.push(
+      `5. EXACT TARGET ANCHOR: Place the base/floor-contact center of "${productDescriptor}" directly at ${pinDesc} in Image 1. All legs/base points MUST rest firmly on the real floor plane at that exact anchor (never floating, never pushed into a wall, never relocated to another part of the room).`
+    );
+  } else {
+    lines.push(`5. PLACEMENT ZONE: ${placementInstruction[params.placement]}`);
   }
 
-  lines.push('Output only the final edited photorealistic room photograph with no text overlays, frames, or watermarks.');
+  if (
+    params.dimensionsCm &&
+    params.dimensionsCm.heightCm > 0 &&
+    params.dimensionsCm.widthCm > 0
+  ) {
+    lines.push(
+      `6. REAL-WORLD PHYSICAL SCALE: The exact product dimensions are Height ${params.dimensionsCm.heightCm} cm × Width ${params.dimensionsCm.widthCm} cm × Depth ${params.dimensionsCm.depthCm} cm. Calibrate its rendered size accurately against real architectural cues in Image 1 (standard interior door ≈ 205 cm tall, window sill ≈ 65–85 cm, table ≈ 74 cm, baseboard ≈ 10–12 cm) so it is neither oversized nor miniature.`
+    );
+  } else {
+    lines.push(
+      '6. REAL-WORLD PHYSICAL SCALE: Calibrate the product’s size accurately against doors, baseboards, window sills, and adjacent furniture in Image 1.'
+    );
+  }
+
+  lines.push(
+    '7. PERSPECTIVE, CONTACT SHADOWS & OCCLUSION: Align the chair seat and legs with the 3D floor vanishing lines of Image 1. Ground every floor-touching leg with crisp dark ambient occlusion directly beneath the feet plus a soft directional cast shadow matching existing shadows in Image 1. If any foreground element in Image 1 (e.g., stanchion, table edge, wall corner, foreground furniture) sits closer to the camera than the placement spot, keep that foreground element cleanly in front of (occluding) the chair.',
+    `8. LIGHTING MATCH: ${lightingInstruction[params.lightingMood]}`
+  );
+
+  if (params.customNotes && params.customNotes.trim()) {
+    lines.push(`9. ROOM-SPECIFIC PLACEMENT DIRECTION: ${params.customNotes.trim()}`);
+  }
+
+  lines.push(
+    '',
+    'Output ONLY the edited photograph matching Image 1 with no text, markers, pins, borders, or watermarks.'
+  );
   return lines.join('\n');
 }

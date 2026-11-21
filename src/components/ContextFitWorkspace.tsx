@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { ChangeEvent, DragEvent, FormEvent } from 'react';
+import type { ChangeEvent, DragEvent, FormEvent, MouseEvent } from 'react';
 import {
   Upload,
   ArrowUpRight,
@@ -11,6 +11,8 @@ import {
   LayoutGrid,
   Check,
   RotateCcw,
+  Crosshair,
+  X,
 } from 'lucide-react';
 import type {
   ContextFitAnalysis,
@@ -18,21 +20,29 @@ import type {
   UserMeasurements,
   VisualPreviewRender,
 } from '../types/contextFit';
-import type { RoomPhoto } from '../types/studio';
+import type { PlacementPin, RoomPhoto } from '../types/studio';
 import { INITIAL_GOAL_PROMPTS, REVISION_FOLLOWUP_CHIPS } from '../data/merchantCatalog';
 import {
   evaluateDeterministicConstraints,
   formatEvidenceLabel,
   humanizeMissingDataLabel,
 } from '../utils/contextFitLogic';
+import { clampPlacementPin } from '../utils/sceneMath';
 import { downloadImageAsPng } from '../utils/canvasTools';
 import { SafeImage } from './SafeImage';
 import { SplitCompareSlider } from './SplitCompareSlider';
+
+interface VisualizeOptions {
+  customPlacementHint?: string;
+  isPrimaryCheck?: boolean;
+  usePinnedSpot?: boolean;
+}
 
 interface ContextFitWorkspaceProps {
   currentChair: MerchantChair;
   catalog: MerchantChair[];
   roomPhoto: RoomPhoto | null;
+  placementPin: PlacementPin | null;
   isProcessingRoom: boolean;
   roomError: string | null;
   userGoal: string;
@@ -44,6 +54,7 @@ interface ContextFitWorkspaceProps {
   visualRenders: Record<string, VisualPreviewRender>;
   activePreviewKey: string;
   onSelectPreviewKey: (key: string) => void;
+  onChangePlacementPin: (pin: PlacementPin | null) => void;
   onUploadRoomFile: (file: File) => void;
   onUseSampleRoom: () => void;
   onChangeGoal: (goal: string) => void;
@@ -57,8 +68,7 @@ interface ContextFitWorkspaceProps {
   onVisualizeInRoom: (
     key: string,
     chair: MerchantChair,
-    customPlacementHint?: string,
-    isPrimaryCheck?: boolean
+    options?: VisualizeOptions
   ) => void;
 }
 
@@ -66,6 +76,7 @@ export function ContextFitWorkspace({
   currentChair,
   catalog,
   roomPhoto,
+  placementPin,
   isProcessingRoom,
   roomError,
   userGoal,
@@ -77,6 +88,7 @@ export function ContextFitWorkspace({
   visualRenders,
   activePreviewKey,
   onSelectPreviewKey,
+  onChangePlacementPin,
   onUploadRoomFile,
   onUseSampleRoom,
   onChangeGoal,
@@ -114,6 +126,14 @@ export function ContextFitWorkspace({
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) onUploadRoomFile(file);
+  };
+
+  const handlePinPhotoClick = (e: MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
+    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+    onChangePlacementPin(clampPlacementPin({ xPercent, yPercent }));
   };
 
   const handleFollowUpSubmit = (e: FormEvent) => {
@@ -295,13 +315,101 @@ export function ContextFitWorkspace({
 
           {roomPhoto ? (
             <div className="space-y-2.5">
-              <div className="aspect-[4/3] w-full overflow-hidden border border-[#DFDFDF] dark:border-[#262626] bg-[#F5F5F4] dark:bg-[#181818]">
-                <SafeImage
-                  src={roomPhoto.dataUrl}
-                  alt={`Room photo: ${roomPhoto.name}`}
-                  className="w-full h-full object-cover"
-                />
+              {/* Uncropped aspect-exact clickable floor-pinning surface */}
+              <div className="w-full border border-[#DFDFDF] dark:border-[#262626] bg-[#F5F5F4] dark:bg-[#181818] flex items-center justify-center overflow-hidden">
+                <button
+                  type="button"
+                  onClick={handlePinPhotoClick}
+                  data-testid="room-photo-pin-surface"
+                  aria-label="Pin exact floor placement spot on your room photo"
+                  style={{
+                    aspectRatio: `${roomPhoto.resizedWidth} / ${roomPhoto.resizedHeight}`,
+                  }}
+                  className="relative block max-h-[340px] max-w-full w-auto cursor-crosshair focus:outline-none focus-visible:ring-2 focus-visible:ring-[#B91C1C]"
+                >
+                  <SafeImage
+                    src={roomPhoto.dataUrl}
+                    alt={`Room photo: ${roomPhoto.name}`}
+                    className="block w-full h-full object-contain pointer-events-none select-none"
+                  />
+
+                  {placementPin && (
+                    <span
+                      data-testid="placement-pin-marker"
+                      aria-hidden="true"
+                      style={{
+                        left: `${placementPin.xPercent}%`,
+                        top: `${placementPin.yPercent}%`,
+                      }}
+                      className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                    >
+                      <span className="relative flex items-center justify-center w-8 h-8">
+                        <span className="absolute inset-0 rounded-full border-2 border-[#B91C1C] bg-white/25 shadow-[0_0_0_1.5px_rgba(255,255,255,0.95)]" />
+                        <span className="absolute inset-x-0 top-1/2 h-[1.5px] bg-[#B91C1C]" />
+                        <span className="absolute inset-y-0 left-1/2 w-[1.5px] bg-[#B91C1C]" />
+                        <span className="relative w-2 h-2 rounded-full bg-[#B91C1C] ring-1 ring-white" />
+                      </span>
+                      <span
+                        className={`absolute left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-[#0E0E0E] text-white text-[9px] font-mono tracking-wider whitespace-nowrap ${
+                          placementPin.yPercent > 80 ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+                        }`}
+                      >
+                        CHAIR SPOT
+                      </span>
+                    </span>
+                  )}
+                </button>
               </div>
+
+              {/* Exact Placement Pin Status Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border border-[#DFDFDF] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#161616] text-[11px]">
+                {placementPin ? (
+                  <>
+                    <div
+                      className="inline-flex items-center gap-1.5 font-mono tabular-nums text-[#0E0E0E] dark:text-[#F2F2F2]"
+                      data-testid="placement-pin-readout"
+                    >
+                      <Crosshair className="w-3.5 h-3.5 text-[#B91C1C] shrink-0" />
+                      <span>
+                        Pinned floor spot: {placementPin.xPercent}% X, {placementPin.yPercent}% Y
+                      </span>
+                    </div>
+                    <div className="inline-flex items-center gap-2">
+                      {allRenderEntries.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onVisualizeInRoom(`primary-${currentChair.id}`, currentChair, {
+                              isPrimaryCheck: true,
+                              usePinnedSpot: true,
+                            })
+                          }
+                          disabled={visualRenders[`primary-${currentChair.id}`]?.status === 'rendering'}
+                          className="px-2 py-0.5 bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111] font-mono font-semibold hover:opacity-85 disabled:opacity-45 transition-opacity"
+                        >
+                          Update Scene
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onChangePlacementPin(null)}
+                        className="inline-flex items-center gap-1 font-mono text-[#666666] dark:text-[#A3A3A3] hover:text-[#B91C1C] transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>Clear Pin</span>
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="inline-flex items-center gap-1.5 text-[#525252] dark:text-[#A3A3A3]">
+                    <Crosshair className="w-3.5 h-3.5 text-[#737373] shrink-0" />
+                    <span>
+                      Click anywhere on the floor in your photo to pin the exact chair spot
+                    </span>
+                  </div>
+                )}
+              </div>
+
               <div
                 className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono tabular-nums text-[#666666] dark:text-[#9CA3AF]"
                 data-testid="room-dimensions-readout"
@@ -815,6 +923,24 @@ export function ContextFitWorkspace({
                     )}
                   </div>
 
+                  <button
+                    type="button"
+                    disabled={activePreviewRender?.status === 'rendering'}
+                    onClick={() =>
+                      onVisualizeInRoom(`primary-${currentChair.id}`, currentChair, {
+                        customPlacementHint: placementPin
+                          ? undefined
+                          : activeAnalysis.initialPlacementHint || userGoal.trim(),
+                        isPrimaryCheck: true,
+                        usePinnedSpot: Boolean(placementPin),
+                      })
+                    }
+                    className="h-8 px-3 border border-[#DFDFDF] dark:border-[#333333] text-xs font-medium text-[#0E0E0E] dark:text-[#F2F2F2] hover:border-[#0E0E0E] dark:hover:border-[#F2F2F2] disabled:opacity-45 inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <Crosshair className="w-3.5 h-3.5" />
+                    <span>{placementPin ? 'Render at Pin' : 'Re-render'}</span>
+                  </button>
+
                   {activePreviewRender?.status === 'done' && activePreviewRender.imageDataUrl && (
                     <button
                       type="button"
@@ -967,12 +1093,13 @@ export function ContextFitWorkspace({
                     <button
                       type="button"
                       onClick={() =>
-                        onVisualizeInRoom(
-                          `primary-${currentChair.id}`,
-                          currentChair,
-                          userGoal.trim(),
-                          true
-                        )
+                        onVisualizeInRoom(`primary-${currentChair.id}`, currentChair, {
+                          customPlacementHint: placementPin
+                            ? undefined
+                            : activeAnalysis.initialPlacementHint || userGoal.trim(),
+                          isPrimaryCheck: true,
+                          usePinnedSpot: Boolean(placementPin),
+                        })
                       }
                       className="h-8 px-3 border border-[#0E0E0E] dark:border-[#F2F2F2] text-xs font-semibold"
                     >
@@ -1068,11 +1195,10 @@ export function ContextFitWorkspace({
                     type="button"
                     disabled={visualRenders[`placement-${currentChair.id}`]?.status === 'rendering'}
                     onClick={() =>
-                      onVisualizeInRoom(
-                        `placement-${currentChair.id}`,
-                        currentChair,
-                        activeAnalysis.placementStrategy.renderHint
-                      )
+                      onVisualizeInRoom(`placement-${currentChair.id}`, currentChair, {
+                        customPlacementHint: activeAnalysis.placementStrategy.renderHint,
+                        usePinnedSpot: false,
+                      })
                     }
                     className="w-full h-10 px-3.5 border border-[#0E0E0E] dark:border-[#F2F2F2] bg-white dark:bg-[#111111] text-[#0E0E0E] dark:text-[#F2F2F2] text-xs font-semibold inline-flex items-center justify-between hover:bg-[#0E0E0E] hover:text-white dark:hover:bg-[#F2F2F2] dark:hover:text-[#111111] disabled:opacity-45 transition-colors"
                   >
@@ -1174,7 +1300,12 @@ export function ContextFitWorkspace({
                         <button
                           type="button"
                           disabled={renderState?.status === 'rendering'}
-                          onClick={() => onVisualizeInRoom(renderKey, chair)}
+                          onClick={() =>
+                            onVisualizeInRoom(renderKey, chair, {
+                              customPlacementHint: activeAnalysis.initialPlacementHint,
+                              usePinnedSpot: true,
+                            })
+                          }
                           className="h-10 px-3 border border-[#0E0E0E] dark:border-[#F2F2F2] text-xs font-semibold text-[#0E0E0E] dark:text-[#F2F2F2] hover:bg-[#0E0E0E] hover:text-white dark:hover:bg-[#F2F2F2] dark:hover:text-[#111111] disabled:opacity-45 inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
                         >
                           {renderState?.status === 'rendering' ? (

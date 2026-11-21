@@ -5,8 +5,10 @@ import {
   buildRoomRenderPrompt,
   canAddProduct,
   chooseNearestAspectRatio,
+  clampPlacementPin,
   computeResizedDimensions,
   createSettingsSignature,
+  describePlacementPin,
   findLowestPriceId,
   formatPrice,
   normalizeShopifyProduct,
@@ -184,4 +186,38 @@ test('buildRoomRenderPrompt includes placement, lighting mood, product details, 
     'var-1'
   );
   assert.ok(sig.includes('Coffee Table'));
+});
+
+test('clampPlacementPin and describePlacementPin produce accurate bounded coordinates', () => {
+  assert.deepEqual(clampPlacementPin({ xPercent: -5, yPercent: 120 }), {
+    xPercent: 4,
+    yPercent: 96,
+  });
+  assert.deepEqual(clampPlacementPin({ xPercent: 64.4, yPercent: 76.6 }), {
+    xPercent: 64,
+    yPercent: 77,
+  });
+
+  const desc = describePlacementPin({ xPercent: 64, yPercent: 77 });
+  assert.match(desc, /x=64% from left edge, y=77% from top edge/);
+  assert.match(desc, /right-center, foreground floor/);
+});
+
+test('buildRoomRenderPrompt enforces strict background lock, exact pin anchor, and cm scale', () => {
+  const prompt = buildRoomRenderPrompt({
+    productName: 'Soren High-Back Wing Chair',
+    productBrand: 'FORMA',
+    placement: 'Floor / Corner',
+    lightingMood: 'Match Room',
+    placementPin: { xPercent: 32, yPercent: 74 },
+    dimensionsCm: { heightCm: 106, widthCm: 82, depthCm: 85 },
+    customNotes: 'Angle 20 degrees toward the corridor',
+  });
+
+  assert.match(prompt, /NON-NEGOTIABLE BACKGROUND LOCK/i);
+  assert.match(prompt, /do NOT zoom, pan, tilt, or recompose/i);
+  assert.match(prompt, /x=32% from left edge, y=74% from top edge/i);
+  assert.match(prompt, /Height 106 cm × Width 82 cm × Depth 85 cm/);
+  assert.match(prompt, /ambient occlusion/i);
+  assert.match(prompt, /Angle 20 degrees toward the corridor/);
 });

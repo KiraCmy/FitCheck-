@@ -1,7 +1,13 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { GoogleGenAI } from '@google/genai';
-import type { LightingMood, PlacementOption, SupportedAspectRatio } from '../src/types/studio';
+import type {
+  LightingMood,
+  PlacementOption,
+  PlacementPin,
+  ProductDimensionsCm,
+  SupportedAspectRatio,
+} from '../src/types/studio';
 import { buildRoomRenderPrompt, chooseNearestAspectRatio } from '../src/utils/sceneMath';
 
 const MODEL_NAME = 'gemini-3.1-flash-lite-image';
@@ -122,6 +128,8 @@ export interface RenderRoomSceneInput {
   placement: PlacementOption;
   lightingMood: LightingMood;
   customNotes?: string;
+  placementPin?: PlacementPin;
+  dimensionsCm?: ProductDimensionsCm;
 }
 
 export interface RenderRoomSceneOutput {
@@ -162,6 +170,8 @@ export async function renderProductInRoom(
     placement: input.placement,
     lightingMood: input.lightingMood,
     customNotes: input.customNotes,
+    placementPin: input.placementPin,
+    dimensionsCm: input.dimensionsCm,
   });
 
   let activeModelUsed = MODEL_NAME;
