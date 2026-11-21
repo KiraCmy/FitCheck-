@@ -5,6 +5,7 @@ import type { LightingMood, PlacementOption, SupportedAspectRatio } from '../src
 import { buildRoomRenderPrompt, chooseNearestAspectRatio } from '../src/utils/sceneMath';
 
 const MODEL_NAME = 'gemini-3.1-flash-lite-image';
+const FALLBACK_RENDER_MODEL = 'gemini-2.5-flash-image';
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -163,33 +164,71 @@ export async function renderProductInRoom(
     customNotes: input.customNotes,
   });
 
-  const response = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: roomParsed.base64,
-            mimeType: roomMimeType,
+  let activeModelUsed = MODEL_NAME;
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: roomParsed.base64,
+              mimeType: roomMimeType,
+            },
           },
-        },
-        {
-          inlineData: {
-            data: productBytes.data,
-            mimeType: productBytes.mimeType,
+          {
+            inlineData: {
+              data: productBytes.data,
+              mimeType: productBytes.mimeType,
+            },
           },
-        },
-        {
-          text: prompt,
-        },
-      ],
-    },
-    config: {
-      imageConfig: {
-        aspectRatio,
+          {
+            text: prompt,
+          },
+        ],
       },
-    },
-  });
+      config: {
+        imageConfig: {
+          aspectRatio,
+        },
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/404|NOT_FOUND|not found|not supported/i.test(msg)) {
+      activeModelUsed = FALLBACK_RENDER_MODEL;
+      response = await ai.models.generateContent({
+        model: FALLBACK_RENDER_MODEL,
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: roomParsed.base64,
+                mimeType: roomMimeType,
+              },
+            },
+            {
+              inlineData: {
+                data: productBytes.data,
+                mimeType: productBytes.mimeType,
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio,
+          },
+        },
+      });
+    } else {
+      throw err;
+    }
+  }
 
   const parts = response.candidates?.[0]?.content?.parts ?? [];
   for (const part of parts) {
@@ -199,7 +238,7 @@ export async function renderProductInRoom(
         imageDataUrl: `data:${mimeType};base64,${part.inlineData.data}`,
         mimeType,
         aspectRatio,
-        model: MODEL_NAME,
+        model: activeModelUsed,
         renderTimeMs: Date.now() - startedAt,
       };
     }

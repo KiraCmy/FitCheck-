@@ -6,19 +6,61 @@ import type {
   UserMeasurements,
   VisualPreviewRender,
 } from './types/contextFit';
-import type { RoomPhoto } from './types/studio';
+import type { RoomPhoto, SupportedAspectRatio } from './types/studio';
 import {
   APARTMENT_WINDOW_ROOM,
   INITIAL_GOAL_PROMPTS,
   MERCHANT_CHAIRS,
 } from './data/merchantCatalog';
 import { summarizeAnalysisForHistory } from './utils/contextFitLogic';
-import { optimizeRoomImageFile, optimizeRoomImageFromSource } from './utils/canvasTools';
+import {
+  imageUrlToDataUrl,
+  optimizeRoomImageFile,
+  optimizeRoomImageFromSource,
+} from './utils/canvasTools';
 import { StorefrontHeader } from './components/StorefrontHeader';
 import { ProductDetailHero } from './components/ProductDetailHero';
 import { ContextFitWorkspace } from './components/ContextFitWorkspace';
 import { CatalogGrid } from './components/CatalogGrid';
 import { CartDrawer } from './components/CartDrawer';
+
+async function parseJsonResponse<T>(res: Response, fallbackLabel: string): Promise<T> {
+  const raw = await res.text();
+  let parsed: Record<string, unknown> | null = null;
+  try {
+    parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+  } catch {
+    parsed = null;
+  }
+
+  if (!res.ok) {
+    const serverMsg =
+      parsed && typeof parsed.error === 'string' && parsed.error.trim() ? parsed.error.trim() : '';
+    if (serverMsg) {
+      throw new Error(serverMsg);
+    }
+    if (res.status === 404) {
+      throw new Error(
+        `${fallbackLabel} endpoint was not found (HTTP 404). Make sure the /api backend is deployed and GEMINI_API_KEY is configured.`
+      );
+    }
+    if (res.status === 413) {
+      throw new Error('Image payload was too large. Try uploading a smaller room photo.');
+    }
+    if (res.status === 504) {
+      throw new Error(`${fallbackLabel} timed out on the server. Please try again.`);
+    }
+    throw new Error(`${fallbackLabel} failed (HTTP ${res.status}).`);
+  }
+
+  if (!parsed) {
+    throw new Error(
+      `${fallbackLabel} returned an unexpected non-JSON response. Please check that the /api backend is running.`
+    );
+  }
+
+  return parsed as T;
+}
 
 function getInitialTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'light';
@@ -51,8 +93,9 @@ export default function App() {
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
 
-  // Optional room visualization renders (gemini-3.1-flash-lite-image)
+  // Photorealistic room visualization renders (gemini-3.1-flash-lite-image)
   const [visualRenders, setVisualRenders] = useState<Record<string, VisualPreviewRender>>({});
+  const [activePreviewKey, setActivePreviewKey] = useState<string>('');
 
   // Merchant shopping bag state
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -120,6 +163,7 @@ export default function App() {
     setActiveTurnIndex(0);
     setAnalysisError(null);
     setVisualRenders({});
+    setActivePreviewKey('');
     document.getElementById('product-view')?.scrollIntoView({ behavior: 'smooth' });
   };
 
@@ -142,6 +186,7 @@ export default function App() {
       setTurns([]);
       setActiveTurnIndex(0);
       setVisualRenders({});
+      setActivePreviewKey('');
     } catch (err) {
       setRoomError(err instanceof Error ? err.message : 'Unable to process room photo.');
     } finally {
@@ -149,10 +194,97 @@ export default function App() {
     }
   };
 
+  const handleVisualizeInRoom = useCallback(
+    async (
+      key: string,
+      chair: MerchantChair,
+      customPlacementHint?: string,
+      isPrimaryCheck?: boolean
+    ) => {
+      if (!roomPhoto) return;
+      const label = isPrimaryCheck
+        ? `${chair.name} in Your Room`
+        : customPlacementHint
+          ? `${chair.shortTitle} (Repositioned)`
+          : `${chair.shortTitle} (${chair.dimensions.heightCm} cm H)`;
+
+      setActivePreviewKey(key);
+      if (!isPrimaryCheck) {
+        setTimeout(() => {
+          document
+            .getElementById('room-scene-preview')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 60);
+      }
+      setVisualRenders((prev) => ({
+        ...prev,
+        [key]: { status: 'rendering', label },
+      }));
+
+      try {
+        const productImageBase64 = await imageUrlToDataUrl(chair.imageUrl);
+        const notes = isPrimaryCheck
+          ? `Shopper intent: "${customPlacementHint || userGoal.trim()}". Place the ${chair.name} (${chair.dimensions.heightCm} cm H × ${chair.dimensions.widthCm} cm W, ${chair.material}) naturally into the photographed space with realistic perspective, contact shadows, and scale.`
+          : customPlacementHint ||
+            `Shopper intent: "${userGoal.trim()}". Place the ${chair.name} (${chair.dimensions.heightCm} cm H × ${chair.dimensions.widthCm} cm W, ${chair.backProfile.toLowerCase()}) naturally into the photographed space with realistic scale and lighting.`;
+
+        const res = await fetch('/api/scene/render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            roomImageBase64: roomPhoto.dataUrl,
+            roomMimeType: roomPhoto.mimeType,
+            roomWidth: roomPhoto.resizedWidth,
+            roomHeight: roomPhoto.resizedHeight,
+            productImageBase64,
+            productImageUrl: chair.imageUrl,
+            productName: chair.name,
+            productBrand: chair.designer,
+            variantLabel: `${chair.finish} · ${chair.backProfile}`,
+            placement: 'Smart Auto',
+            lightingMood: 'Match Room',
+            customNotes: notes,
+          }),
+        });
+        const data = await parseJsonResponse<{
+          imageDataUrl: string;
+          aspectRatio: SupportedAspectRatio;
+          renderTimeMs: number;
+        }>(res, 'Room scene preview');
+
+        setVisualRenders((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'done',
+            imageDataUrl: data.imageDataUrl,
+            aspectRatio: data.aspectRatio,
+            renderTimeMs: data.renderTimeMs,
+            label,
+          },
+        }));
+      } catch (err) {
+        setVisualRenders((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'error',
+            error: err instanceof Error ? err.message : 'Room scene preview failed.',
+            label,
+          },
+        }));
+      }
+    },
+    [roomPhoto, userGoal]
+  );
+
   const handleRunAnalysis = async () => {
     if (!roomPhoto || !userGoal.trim()) return;
     setIsAnalyzing(true);
     setAnalysisError(null);
+
+    // Automatically generate the product-in-user-room scene image in parallel with fit analysis
+    const primaryKey = `primary-${currentChair.id}`;
+    void handleVisualizeInRoom(primaryKey, currentChair, userGoal.trim(), true);
+
     try {
       const res = await fetch('/api/contextfit/analyze', {
         method: 'POST',
@@ -167,18 +299,19 @@ export default function App() {
           measurements,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `ContextFit analysis failed (HTTP ${res.status}).`);
-      }
+      const data = await parseJsonResponse<{
+        analysis: ContextFitAnalysis;
+        resolvedMeasurements?: UserMeasurements;
+      }>(res, 'Fit analysis');
+
       if (data.resolvedMeasurements) {
         setMeasurements(data.resolvedMeasurements);
       }
-      setTurns([data.analysis as ContextFitAnalysis]);
+      setTurns([data.analysis]);
       setActiveTurnIndex(0);
     } catch (err) {
       setAnalysisError(
-        err instanceof Error ? err.message : 'Could not complete ContextFit analysis.'
+        err instanceof Error ? err.message : 'Could not complete fit analysis.'
       );
     } finally {
       setIsAnalyzing(false);
@@ -220,14 +353,15 @@ export default function App() {
           turnNumber: nextTurnNumber,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || `Preference revision failed (HTTP ${res.status}).`);
-      }
+      const data = await parseJsonResponse<{
+        analysis: ContextFitAnalysis;
+        resolvedMeasurements?: UserMeasurements;
+      }>(res, 'Plan revision');
+
       if (data.resolvedMeasurements) {
         setMeasurements(data.resolvedMeasurements);
       }
-      const revisedAnalysis = data.analysis as ContextFitAnalysis;
+      const revisedAnalysis = data.analysis;
       setTurns((prev) => {
         const updated = [...prev, revisedAnalysis];
         setActiveTurnIndex(updated.length - 1);
@@ -237,67 +371,6 @@ export default function App() {
       setAnalysisError(err instanceof Error ? err.message : 'Could not revise plan.');
     } finally {
       setIsAnalyzing(false);
-    }
-  };
-
-  const handleVisualizeInRoom = async (
-    key: string,
-    chair: MerchantChair,
-    customPlacementHint?: string
-  ) => {
-    if (!roomPhoto) return;
-    const label = customPlacementHint
-      ? `${chair.shortTitle} (Revised Placement)`
-      : `${chair.shortTitle} (${chair.dimensions.heightCm} cm H)`;
-
-    setVisualRenders((prev) => ({
-      ...prev,
-      [key]: { status: 'rendering', label },
-    }));
-
-    try {
-      const res = await fetch('/api/scene/render', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          roomImageBase64: roomPhoto.dataUrl,
-          roomMimeType: roomPhoto.mimeType,
-          roomWidth: roomPhoto.resizedWidth,
-          roomHeight: roomPhoto.resizedHeight,
-          productImageUrl: chair.imageUrl,
-          productName: chair.name,
-          productBrand: chair.designer,
-          variantLabel: `${chair.finish} · ${chair.backProfile}`,
-          placement: 'Floor / Corner',
-          lightingMood: 'Natural Light',
-          customNotes:
-            customPlacementHint ||
-            `Place this ${chair.backProfile.toLowerCase()} chair naturally in the empty reading corner on the oak floor near the window and plaster wall, matching realistic apartment chair scale.`,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Visual preview failed.');
-      }
-      setVisualRenders((prev) => ({
-        ...prev,
-        [key]: {
-          status: 'done',
-          imageDataUrl: data.imageDataUrl,
-          aspectRatio: data.aspectRatio,
-          renderTimeMs: data.renderTimeMs,
-          label,
-        },
-      }));
-    } catch (err) {
-      setVisualRenders((prev) => ({
-        ...prev,
-        [key]: {
-          status: 'error',
-          error: err instanceof Error ? err.message : 'Visual preview failed.',
-          label,
-        },
-      }));
     }
   };
 
@@ -380,6 +453,8 @@ export default function App() {
           isAnalyzing={isAnalyzing}
           analysisError={analysisError}
           visualRenders={visualRenders}
+          activePreviewKey={activePreviewKey}
+          onSelectPreviewKey={setActivePreviewKey}
           onUploadRoomFile={handleUploadRoomFile}
           onUseSampleRoom={loadSampleApartmentRoom}
           onChangeGoal={setUserGoal}
@@ -395,6 +470,7 @@ export default function App() {
             setAnalysisError(null);
             setMeasurements({});
             setVisualRenders({});
+            setActivePreviewKey('');
           }}
           onSelectChair={handleSelectChair}
           onAddToCart={handleAddToCart}

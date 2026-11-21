@@ -73,7 +73,7 @@ export async function optimizeRoomImageFromSource(
   ctx.drawImage(img, 0, 0, width, height);
 
   const mimeType = 'image/jpeg';
-  const dataUrl = canvas.toDataURL(mimeType, 0.9);
+  const dataUrl = canvas.toDataURL(mimeType, 0.86);
   const aspectRatio = chooseNearestAspectRatio(width, height);
 
   return {
@@ -88,6 +88,36 @@ export async function optimizeRoomImageFromSource(
     wasResized,
     aspectRatio,
   };
+}
+
+/**
+ * Converts a same-origin studio product photo URL into a compact JPEG data URL
+ * so serverless deployments (e.g., Vercel) do not depend on local filesystem reads.
+ */
+export async function imageUrlToDataUrl(url: string, maxSide = 900): Promise<string | undefined> {
+  if (!url) return undefined;
+  if (url.startsWith('data:image/')) return url;
+  try {
+    const img = await loadImageElement(url);
+    const { width, height } = computeResizedDimensions(
+      img.naturalWidth || img.width,
+      img.naturalHeight || img.height,
+      maxSide
+    );
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return undefined;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, width, height);
+    return canvas.toDataURL('image/jpeg', 0.88);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

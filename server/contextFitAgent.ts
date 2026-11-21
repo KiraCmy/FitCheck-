@@ -19,6 +19,7 @@ import {
 } from '../src/utils/contextFitLogic';
 
 const ANALYSIS_MODEL = 'gemini-4-hydrogen';
+const FALLBACK_ANALYSIS_MODEL = 'gemini-2.5-flash';
 
 function getGeminiClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -270,27 +271,59 @@ export async function runContextFitAnalysis(
     );
   }
 
-  const response = await ai.models.generateContent({
-    model: ANALYSIS_MODEL,
-    contents: {
-      parts: [
-        {
-          inlineData: {
-            data: roomImg.base64,
-            mimeType: roomImg.mimeType,
+  let activeModelUsed = ANALYSIS_MODEL;
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: ANALYSIS_MODEL,
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              data: roomImg.base64,
+              mimeType: roomImg.mimeType,
+            },
           },
+          {
+            text: promptParts.join('\n\n'),
+          },
+        ],
+      },
+      config: {
+        systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: CONTEXTFIT_RESPONSE_SCHEMA,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/404|NOT_FOUND|not found|not supported/i.test(msg)) {
+      activeModelUsed = FALLBACK_ANALYSIS_MODEL;
+      response = await ai.models.generateContent({
+        model: FALLBACK_ANALYSIS_MODEL,
+        contents: {
+          parts: [
+            {
+              inlineData: {
+                data: roomImg.base64,
+                mimeType: roomImg.mimeType,
+              },
+            },
+            {
+              text: promptParts.join('\n\n'),
+            },
+          ],
         },
-        {
-          text: promptParts.join('\n\n'),
+        config: {
+          systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: CONTEXTFIT_RESPONSE_SCHEMA,
         },
-      ],
-    },
-    config: {
-      systemInstruction,
-      responseMimeType: 'application/json',
-      responseSchema: CONTEXTFIT_RESPONSE_SCHEMA,
-    },
-  });
+      });
+    } else {
+      throw err;
+    }
+  }
 
   const rawJson = (response.text ?? '').trim();
   if (!rawJson) {
@@ -436,7 +469,7 @@ export async function runContextFitAnalysis(
         ? parsed.clarifyingQuestion.trim()
         : 'What is the height of your window sill (in cm), or how wide is the solid wall next to the window?',
     clarifyingFieldHint,
-    modelUsed: ANALYSIS_MODEL,
+    modelUsed: activeModelUsed,
     analyzedAt: Date.now(),
   };
 

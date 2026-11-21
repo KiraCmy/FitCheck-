@@ -42,6 +42,8 @@ interface ContextFitWorkspaceProps {
   isAnalyzing: boolean;
   analysisError: string | null;
   visualRenders: Record<string, VisualPreviewRender>;
+  activePreviewKey: string;
+  onSelectPreviewKey: (key: string) => void;
   onUploadRoomFile: (file: File) => void;
   onUseSampleRoom: () => void;
   onChangeGoal: (goal: string) => void;
@@ -52,7 +54,12 @@ interface ContextFitWorkspaceProps {
   onResetSession: () => void;
   onSelectChair: (chairId: string) => void;
   onAddToCart: (chair: MerchantChair) => void;
-  onVisualizeInRoom: (key: string, chair: MerchantChair, customPlacementHint?: string) => void;
+  onVisualizeInRoom: (
+    key: string,
+    chair: MerchantChair,
+    customPlacementHint?: string,
+    isPrimaryCheck?: boolean
+  ) => void;
 }
 
 export function ContextFitWorkspace({
@@ -68,6 +75,8 @@ export function ContextFitWorkspace({
   isAnalyzing,
   analysisError,
   visualRenders,
+  activePreviewKey,
+  onSelectPreviewKey,
   onUploadRoomFile,
   onUseSampleRoom,
   onChangeGoal,
@@ -84,7 +93,7 @@ export function ContextFitWorkspace({
   const [isDragging, setIsDragging] = useState(false);
   const [followUpInput, setFollowUpInput] = useState('');
   const [clarifyInput, setClarifyInput] = useState('');
-  const [visualMode, setVisualMode] = useState<'grid' | 'split'>('split');
+  const [visualMode, setVisualMode] = useState<'scene' | 'split' | 'grid'>('scene');
   const [splitLeftKey, setSplitLeftKey] = useState<string>('__original__');
   const [splitRightKey, setSplitRightKey] = useState<string>('');
   const [exportingKey, setExportingKey] = useState<string | null>(null);
@@ -141,14 +150,25 @@ export function ContextFitWorkspace({
     setClarifyInput('');
   };
 
-  const renderedEntries = Object.entries(visualRenders).filter(
+  const allRenderEntries = Object.entries(visualRenders);
+  const renderedEntries = allRenderEntries.filter(
     ([, val]) => val.status === 'done' && Boolean(val.imageDataUrl)
   );
+
+  const resolvedActivePreviewKey =
+    activePreviewKey && visualRenders[activePreviewKey]
+      ? activePreviewKey
+      : allRenderEntries[0]?.[0] ?? '';
+  const activePreviewRender = resolvedActivePreviewKey
+    ? visualRenders[resolvedActivePreviewKey]
+    : undefined;
 
   const effectiveRightKey =
     splitRightKey && visualRenders[splitRightKey]?.imageDataUrl
       ? splitRightKey
-      : renderedEntries[0]?.[0] ?? '';
+      : resolvedActivePreviewKey && visualRenders[resolvedActivePreviewKey]?.imageDataUrl
+        ? resolvedActivePreviewKey
+        : renderedEntries[0]?.[0] ?? '';
 
   const effectiveLeftUrl =
     splitLeftKey === '__original__' || !visualRenders[splitLeftKey]?.imageDataUrl
@@ -157,7 +177,7 @@ export function ContextFitWorkspace({
 
   const effectiveLeftLabel =
     splitLeftKey === '__original__' || !visualRenders[splitLeftKey]?.imageDataUrl
-      ? 'Original Room'
+      ? 'Original Photo'
       : visualRenders[splitLeftKey].label || 'Preview A';
 
   const effectiveRightUrl = effectiveRightKey
@@ -166,7 +186,7 @@ export function ContextFitWorkspace({
 
   const effectiveRightLabel = effectiveRightKey
     ? visualRenders[effectiveRightKey]?.label || 'Preview B'
-    : 'Original Room';
+    : 'Original Photo';
 
   const handleExportPng = async (key: string, label: string, url: string) => {
     setExportingKey(key);
@@ -736,6 +756,247 @@ export function ContextFitWorkspace({
             </form>
           </div>
 
+          {/* AUTOMATIC ROOM SCENE PREVIEW (Product placed inside the user's actual photo) */}
+          {allRenderEntries.length > 0 && roomPhoto && (
+            <div
+              id="room-scene-preview"
+              data-testid="room-scene-preview"
+              className="border border-[#DFDFDF] dark:border-[#262626] bg-white dark:bg-[#111111]"
+            >
+              <div className="px-5 py-4 border-b border-[#DFDFDF] dark:border-[#262626] flex flex-wrap items-center justify-between gap-3 bg-[#FAFAFA] dark:bg-[#161616]">
+                <div>
+                  <p className="text-[11px] font-mono text-[#737373] dark:text-[#9CA3AF]">
+                    In Your Photo · Visual Scene Preview
+                  </p>
+                  <h4 className="text-base font-bold text-[#0E0E0E] dark:text-[#F2F2F2] mt-0.5">
+                    {activePreviewRender?.label || `${currentChair.name} in Your Room`}
+                  </h4>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex border border-[#0E0E0E] dark:border-[#F2F2F2]">
+                    <button
+                      type="button"
+                      onClick={() => setVisualMode('scene')}
+                      className={`h-8 px-3 text-xs font-semibold inline-flex items-center gap-1.5 ${
+                        visualMode === 'scene'
+                          ? 'bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111]'
+                          : 'text-[#525252] dark:text-[#A3A3A3]'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>Scene View</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setVisualMode('split')}
+                      className={`h-8 px-3 text-xs font-semibold inline-flex items-center gap-1.5 ${
+                        visualMode === 'split'
+                          ? 'bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111]'
+                          : 'text-[#525252] dark:text-[#A3A3A3]'
+                      }`}
+                    >
+                      <Columns2 className="w-3.5 h-3.5" />
+                      <span>Split Compare</span>
+                    </button>
+                    {allRenderEntries.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setVisualMode('grid')}
+                        className={`h-8 px-3 text-xs font-semibold inline-flex items-center gap-1.5 ${
+                          visualMode === 'grid'
+                            ? 'bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111]'
+                            : 'text-[#525252] dark:text-[#A3A3A3]'
+                        }`}
+                      >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                        <span>All ({allRenderEntries.length})</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {activePreviewRender?.status === 'done' && activePreviewRender.imageDataUrl && (
+                    <button
+                      type="button"
+                      disabled={exportingKey === resolvedActivePreviewKey}
+                      onClick={() =>
+                        handleExportPng(
+                          resolvedActivePreviewKey,
+                          activePreviewRender.label || currentChair.name,
+                          activePreviewRender.imageDataUrl!
+                        )
+                      }
+                      className="h-8 px-3 border border-[#0E0E0E] dark:border-[#F2F2F2] text-xs font-semibold text-[#0E0E0E] dark:text-[#F2F2F2] hover:bg-[#0E0E0E] hover:text-white dark:hover:bg-[#F2F2F2] dark:hover:text-[#111111] inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download PNG</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Quick Scene Switcher Strip when multiple products/placements are rendered */}
+              {allRenderEntries.length > 1 && visualMode !== 'grid' && (
+                <div className="px-5 py-2.5 border-b border-[#EFEFEF] dark:border-[#222222] flex flex-wrap items-center gap-1.5">
+                  {allRenderEntries.map(([key, render]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => onSelectPreviewKey(key)}
+                      className={`h-7 px-2.5 text-[11px] font-mono border transition-colors inline-flex items-center gap-1.5 ${
+                        key === resolvedActivePreviewKey
+                          ? 'border-[#0E0E0E] dark:border-[#F2F2F2] bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111] font-semibold'
+                          : 'border-[#DFDFDF] dark:border-[#2C2C2C] text-[#525252] dark:text-[#A3A3A3] hover:border-[#0E0E0E]'
+                      }`}
+                    >
+                      {render.status === 'rendering' && (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      )}
+                      <span>{render.label || key}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="p-5 space-y-3">
+                {visualMode === 'grid' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {allRenderEntries.map(([key, render]) => (
+                      <div
+                        key={key}
+                        className="border border-[#DFDFDF] dark:border-[#262626] p-3 space-y-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2 text-xs">
+                          <span className="font-semibold truncate">{render.label || key}</span>
+                          {render.status === 'done' && render.imageDataUrl && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleExportPng(key, render.label || key, render.imageDataUrl!)
+                              }
+                              className="text-[11px] font-mono underline underline-offset-2 shrink-0"
+                            >
+                              PNG
+                            </button>
+                          )}
+                        </div>
+                        <div className="aspect-[4/3] bg-[#F5F5F4] dark:bg-[#181818] border border-[#DFDFDF] dark:border-[#262626] relative overflow-hidden flex items-center justify-center">
+                          {render.status === 'rendering' ? (
+                            <div className="flex flex-col items-center gap-2 text-xs text-[#666666] dark:text-[#9CA3AF]">
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              <span>Rendering scene…</span>
+                            </div>
+                          ) : render.status === 'error' ? (
+                            <p className="p-4 text-xs text-[#B91C1C] text-center">{render.error}</p>
+                          ) : render.imageDataUrl ? (
+                            <SafeImage
+                              src={render.imageDataUrl}
+                              alt={render.label || 'Room visual preview'}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : visualMode === 'split' && renderedEntries.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <select
+                        aria-label="Left split comparison scene"
+                        value={splitLeftKey}
+                        onChange={(e) => setSplitLeftKey(e.target.value)}
+                        className="h-8 px-2.5 text-xs border border-[#DFDFDF] dark:border-[#2C2C2C] bg-white dark:bg-[#161616] text-[#0E0E0E] dark:text-[#F2F2F2]"
+                      >
+                        <option value="__original__">Original Photo</option>
+                        {renderedEntries.map(([k, r]) => (
+                          <option key={k} value={k}>
+                            {r.label || k}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-xs font-mono text-[#737373]">vs.</span>
+                      <select
+                        aria-label="Right split comparison scene"
+                        value={effectiveRightKey}
+                        onChange={(e) => setSplitRightKey(e.target.value)}
+                        className="h-8 px-2.5 text-xs border border-[#DFDFDF] dark:border-[#2C2C2C] bg-white dark:bg-[#161616] text-[#0E0E0E] dark:text-[#F2F2F2]"
+                      >
+                        {renderedEntries.map(([k, r]) => (
+                          <option key={k} value={k}>
+                            {r.label || k}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <SplitCompareSlider
+                      leftImageUrl={effectiveLeftUrl}
+                      leftLabel={effectiveLeftLabel}
+                      rightImageUrl={effectiveRightUrl}
+                      rightLabel={effectiveRightLabel}
+                      aspectRatioStyle={`${roomPhoto.resizedWidth} / ${roomPhoto.resizedHeight}`}
+                    />
+                  </div>
+                ) : activePreviewRender?.status === 'rendering' ? (
+                  <div
+                    className="relative w-full overflow-hidden border border-[#DFDFDF] dark:border-[#262626] bg-[#F5F5F4] dark:bg-[#181818] max-h-[540px] flex items-center justify-center"
+                    style={{ aspectRatio: `${roomPhoto.resizedWidth} / ${roomPhoto.resizedHeight}` }}
+                  >
+                    <SafeImage
+                      src={roomPhoto.dataUrl}
+                      alt="Original room while rendering preview"
+                      className="w-full h-full object-cover opacity-35"
+                    />
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-white/60 dark:bg-black/55">
+                      <Loader2 className="w-6 h-6 animate-spin text-[#0E0E0E] dark:text-[#F2F2F2] mb-2.5" />
+                      <p className="text-sm font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
+                        Generating scene preview in your photo…
+                      </p>
+                      <p className="text-xs text-[#525252] dark:text-[#A3A3A3] mt-1">
+                        Compositing {activePreviewRender.label || currentChair.name} with natural
+                        perspective and lighting
+                      </p>
+                    </div>
+                  </div>
+                ) : activePreviewRender?.status === 'error' ? (
+                  <div className="p-6 border border-[#DFDFDF] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#161616] flex flex-wrap items-center justify-between gap-4">
+                    <p className="text-xs text-[#B91C1C] dark:text-[#F87171]">
+                      {activePreviewRender.error || 'Could not generate room scene preview.'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onVisualizeInRoom(
+                          `primary-${currentChair.id}`,
+                          currentChair,
+                          userGoal.trim(),
+                          true
+                        )
+                      }
+                      className="h-8 px-3 border border-[#0E0E0E] dark:border-[#F2F2F2] text-xs font-semibold"
+                    >
+                      Retry Scene Preview
+                    </button>
+                  </div>
+                ) : activePreviewRender?.imageDataUrl ? (
+                  <div className="w-full overflow-hidden border border-[#DFDFDF] dark:border-[#262626] bg-[#F5F5F4] dark:bg-[#181818]">
+                    <SafeImage
+                      src={activePreviewRender.imageDataUrl}
+                      alt={activePreviewRender.label || 'Product in your room scene preview'}
+                      className="w-full max-h-[580px] object-contain mx-auto"
+                    />
+                  </div>
+                ) : null}
+
+                <p className="text-[11px] font-mono text-[#737373] dark:text-[#8E8E93]">
+                  AI scene visualization for visual context — verify exact cm dimensions in Key Fit
+                  Checks above.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* PANEL C: HOW TO MAKE IT WORK (Clean Scannable 3-Option Grid) */}
           <div className="space-y-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1001,151 +1262,54 @@ export function ContextFitWorkspace({
         </div>
       )}
 
-      {/* OPTIONAL VISUAL ROOM PREVIEW WORKSPACE (Shown when any room render is triggered) */}
-      {Object.keys(visualRenders).length > 0 && roomPhoto && (
-        <div className="mt-10 border-t-2 border-[#0E0E0E] dark:border-[#F2F2F2] pt-6 space-y-5">
-          <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* Fallback Room Scene Preview if user triggers a scene render before Turn 1 text finishes */}
+      {!activeAnalysis && allRenderEntries.length > 0 && roomPhoto && (
+        <div
+          data-testid="room-scene-preview-loading"
+          className="mt-10 border border-[#DFDFDF] dark:border-[#262626] bg-white dark:bg-[#111111]"
+        >
+          <div className="px-5 py-4 border-b border-[#DFDFDF] dark:border-[#262626] bg-[#FAFAFA] dark:bg-[#161616] flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-mono text-[#737373] dark:text-[#9CA3AF]">
-                Optional Visual Context · Powered by Gemini Room Compositing
+              <p className="text-[11px] font-mono text-[#737373] dark:text-[#9CA3AF]">
+                In Your Photo · Visual Scene Preview
               </p>
-              <h3 className="text-xl font-bold tracking-tight text-[#0E0E0E] dark:text-[#F2F2F2] mt-0.5">
-                Room Preview Comparison
-              </h3>
-              <p className="text-xs text-[#666666] dark:text-[#9CA3AF] mt-1">
-                Visual preview for aesthetic context only — not to exact physical scale. Verify cm
-                dimensions in the table below.
-              </p>
+              <h4 className="text-base font-bold text-[#0E0E0E] dark:text-[#F2F2F2] mt-0.5">
+                {activePreviewRender?.label || `${currentChair.name} in Your Room`}
+              </h4>
             </div>
-
-            <div className="inline-flex border border-[#0E0E0E] dark:border-[#F2F2F2]">
-              <button
-                type="button"
-                onClick={() => setVisualMode('split')}
-                className={`h-9 px-3.5 text-xs font-semibold inline-flex items-center gap-1.5 ${
-                  visualMode === 'split'
-                    ? 'bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111]'
-                    : 'text-[#525252] dark:text-[#A3A3A3]'
-                }`}
-              >
-                <Columns2 className="w-3.5 h-3.5" />
-                <span>Split Slider</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setVisualMode('grid')}
-                className={`h-9 px-3.5 text-xs font-semibold inline-flex items-center gap-1.5 ${
-                  visualMode === 'grid'
-                    ? 'bg-[#0E0E0E] dark:bg-[#F2F2F2] text-white dark:text-[#111111]'
-                    : 'text-[#525252] dark:text-[#A3A3A3]'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Side-by-Side</span>
-              </button>
-            </div>
+            {activePreviewRender?.status === 'rendering' && (
+              <span className="text-xs font-mono text-[#737373] inline-flex items-center gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Rendering…
+              </span>
+            )}
           </div>
-
-          {visualMode === 'split' && renderedEntries.length > 0 ? (
-            <div className="border border-[#DFDFDF] dark:border-[#262626] p-5 space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <select
-                    aria-label="Left split comparison scene"
-                    value={splitLeftKey}
-                    onChange={(e) => setSplitLeftKey(e.target.value)}
-                    className="h-9 px-3 text-xs border border-[#DFDFDF] dark:border-[#2C2C2C] bg-white dark:bg-[#161616] text-[#0E0E0E] dark:text-[#F2F2F2]"
-                  >
-                    <option value="__original__">Original Room</option>
-                    {renderedEntries.map(([k, r]) => (
-                      <option key={k} value={k}>
-                        {r.label || k}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="text-xs font-mono text-[#737373]">vs.</span>
-                  <select
-                    aria-label="Right split comparison scene"
-                    value={effectiveRightKey}
-                    onChange={(e) => setSplitRightKey(e.target.value)}
-                    className="h-9 px-3 text-xs border border-[#DFDFDF] dark:border-[#2C2C2C] bg-white dark:bg-[#161616] text-[#0E0E0E] dark:text-[#F2F2F2]"
-                  >
-                    {renderedEntries.map(([k, r]) => (
-                      <option key={k} value={k}>
-                        {r.label || k}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {effectiveRightKey && visualRenders[effectiveRightKey]?.imageDataUrl && (
-                  <button
-                    type="button"
-                    disabled={exportingKey === effectiveRightKey}
-                    onClick={() =>
-                      handleExportPng(
-                        effectiveRightKey,
-                        effectiveRightLabel,
-                        visualRenders[effectiveRightKey].imageDataUrl!
-                      )
-                    }
-                    className="h-9 px-3.5 border border-[#0E0E0E] dark:border-[#F2F2F2] text-xs font-semibold inline-flex items-center gap-1.5"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download PNG</span>
-                  </button>
-                )}
-              </div>
-
-              <SplitCompareSlider
-                leftImageUrl={effectiveLeftUrl}
-                leftLabel={effectiveLeftLabel}
-                rightImageUrl={effectiveRightUrl}
-                rightLabel={effectiveRightLabel}
-                aspectRatioStyle={`${roomPhoto.resizedWidth} / ${roomPhoto.resizedHeight}`}
+          <div className="p-5">
+            {activePreviewRender?.status === 'done' && activePreviewRender.imageDataUrl ? (
+              <SafeImage
+                src={activePreviewRender.imageDataUrl}
+                alt={activePreviewRender.label || 'Product in your room scene preview'}
+                className="w-full max-h-[580px] object-contain mx-auto border border-[#DFDFDF] dark:border-[#262626]"
               />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 border border-[#DFDFDF] dark:border-[#262626]">
-              {Object.entries(visualRenders).map(([key, render]) => (
-                <div
-                  key={key}
-                  className="p-4 border-r border-b border-[#DFDFDF] dark:border-[#262626] space-y-3"
-                >
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="font-semibold truncate">{render.label || key}</span>
-                    {render.status === 'done' && render.imageDataUrl && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleExportPng(key, render.label || key, render.imageDataUrl!)
-                        }
-                        className="text-[11px] font-mono underline underline-offset-2 shrink-0"
-                      >
-                        PNG
-                      </button>
-                    )}
-                  </div>
-                  <div className="aspect-[4/3] bg-[#F5F5F4] dark:bg-[#181818] border border-[#DFDFDF] dark:border-[#262626] relative overflow-hidden flex items-center justify-center">
-                    {render.status === 'rendering' ? (
-                      <div className="flex flex-col items-center gap-2 text-xs text-[#666666] dark:text-[#9CA3AF]">
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>Generating room preview…</span>
-                      </div>
-                    ) : render.status === 'error' ? (
-                      <p className="p-4 text-xs text-[#B91C1C] text-center">{render.error}</p>
-                    ) : render.imageDataUrl ? (
-                      <SafeImage
-                        src={render.imageDataUrl}
-                        alt={render.label || 'Room visual preview'}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : null}
-                  </div>
+            ) : (
+              <div
+                className="relative w-full overflow-hidden border border-[#DFDFDF] dark:border-[#262626] bg-[#F5F5F4] dark:bg-[#181818] max-h-[520px] flex items-center justify-center"
+                style={{ aspectRatio: `${roomPhoto.resizedWidth} / ${roomPhoto.resizedHeight}` }}
+              >
+                <SafeImage
+                  src={roomPhoto.dataUrl}
+                  alt="Original room while rendering preview"
+                  className="w-full h-full object-cover opacity-35"
+                />
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center bg-white/60 dark:bg-black/55">
+                  <Loader2 className="w-6 h-6 animate-spin text-[#0E0E0E] dark:text-[#F2F2F2] mb-2.5" />
+                  <p className="text-sm font-semibold text-[#0E0E0E] dark:text-[#F2F2F2]">
+                    Generating scene preview &amp; fit check…
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
