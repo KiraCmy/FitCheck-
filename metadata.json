@@ -1,0 +1,6 @@
+{
+  "name": "RoomCheck",
+  "description": "Visual product comparison studio — compare 2–4 competing products by specs, pricing, and photorealistic renders inside your exact room photo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-swiss-red: #B91C1C;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  .dark body {
+    letter-spacing: 0.005em;
+  }
+
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Sharp Swiss range scrubber for visual split comparison */
+input[type="range"].split-scrubber {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+}
+
+input[type="range"].split-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 0px;
+  background: #0E0E0E;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: ew-resize;
+}
+
+.dark input[type="range"].split-scrubber::-webkit-slider-thumb {
+  background: #F2F2F2;
+  border: 2px solid #111111;
+}
+
+input[type="range"].split-scrubber::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 0px;
+  background: #0E0E0E;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: ew-resize;
+}
